@@ -1,0 +1,632 @@
+package com.example.ui.screens.settings
+
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.di.AppContainer
+import com.example.ui.theme.AppThemes
+
+@Composable
+fun SettingsScreen(
+    appContainer: AppContainer,
+    navController: androidx.navigation.NavHostController? = null,
+    viewModel: SettingsViewModel = viewModel(
+        factory = SettingsViewModel.Factory(appContainer.appPreferences, appContainer.flashcardRepository)
+    )
+) {
+    val context = LocalContext.current
+    val uriHandler = LocalUriHandler.current
+    val githubOwner by viewModel.githubOwner.collectAsState()
+    val githubRepo by viewModel.githubRepo.collectAsState()
+    val githubBranch by viewModel.githubBranch.collectAsState()
+    val openRouterModel by viewModel.openRouterModel.collectAsState()
+    val selectedThemeIndex by viewModel.selectedTheme.collectAsState()
+    val studyMode by viewModel.studyMode.collectAsState()
+    val isVerifying by viewModel.isVerifying.collectAsState()
+    val verificationResult by viewModel.verificationResult.collectAsState()
+    val sourceFolders by viewModel.sourceFolders.collectAsState()
+
+    var githubPat by remember { mutableStateOf(viewModel.getGithubPat()) }
+    var openRouterKey by remember { mutableStateOf(viewModel.getOpenRouterKey()) }
+    var foldersInput by remember(sourceFolders) {
+        mutableStateOf(sourceFolders.joinToString(", "))
+    }
+
+    var patVisible by remember { mutableStateOf(false) }
+    var keyVisible by remember { mutableStateOf(false) }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp)
+    ) {
+        item {
+            Column(modifier = Modifier.padding(bottom = 8.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                ) {
+                    if (navController != null) {
+                        IconButton(
+                            onClick = { navController.navigateUp() },
+                            modifier = Modifier.padding(end = 12.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.ArrowBack,
+                                contentDescription = "Indietro",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
+                    Text(
+                        text = "Impostazioni",
+                        style = MaterialTheme.typography.headlineMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onBackground,
+                            letterSpacing = (-0.5).sp
+                        )
+                    )
+                }
+                Text(
+                    text = "Personalizza l'app, il modello AI e l'integrazione GitHub",
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+                    )
+                )
+            }
+        }
+
+        // Section: Themes
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.onSurface
+                ),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.Palette,
+                            contentDescription = "Theme",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = "Tema Visivo",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    AppThemes.forEachIndexed { index, palette ->
+                        val isSelected = selectedThemeIndex == index
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 6.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(if (isSelected) palette.primaryContainer.copy(alpha = 0.3f) else Color.Transparent)
+                                .border(
+                                    width = if (isSelected) 2.dp else 1.dp,
+                                    color = if (isSelected) palette.primary else MaterialTheme.colorScheme.outlineVariant,
+                                    shape = RoundedCornerShape(16.dp)
+                                )
+                                .clickable { viewModel.updateSelectedTheme(index) }
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Colors indicators
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(24.dp)
+                                        .background(palette.primary, CircleShape)
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(24.dp)
+                                        .background(palette.primaryContainer, CircleShape)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = palette.name,
+                                    style = MaterialTheme.typography.bodyLarge.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                )
+                                Text(
+                                    text = palette.description,
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                )
+                            }
+                            if (isSelected) {
+                                Icon(
+                                    Icons.Default.CheckCircle,
+                                    contentDescription = "Selezionato",
+                                    tint = palette.primary
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Section: Study Mode
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.onSurface
+                ),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.School,
+                            contentDescription = "Study Mode",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = "Modalità di Studio Default",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    val modes = listOf(
+                        Triple("classic", "Classic Flashcards", "🃏 Domande a risposta chiusa (V/F, scelta multipla)"),
+                        Triple("questions", "Solo Domande", "❓ Domande dirette per stimolare il richiamo attivo"),
+                        Triple("curiosities", "Curiosità e Pillole", "💡 Fatti storici e curiosità divertenti sull'argomento")
+                    )
+
+                    modes.forEach { (modeKey, modeTitle, modeDesc) ->
+                        val isSelected = studyMode == modeKey
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 6.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f) else Color.Transparent)
+                                .border(
+                                    width = if (isSelected) 2.dp else 1.dp,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                                    shape = RoundedCornerShape(16.dp)
+                                )
+                                .clickable { viewModel.updateStudyMode(modeKey) }
+                                .padding(16.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = modeTitle,
+                                    style = MaterialTheme.typography.bodyLarge.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                )
+                                if (isSelected) {
+                                    Icon(
+                                        Icons.Default.RadioButtonChecked,
+                                        contentDescription = "Attivo",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                } else {
+                                    Icon(
+                                        Icons.Default.RadioButtonUnchecked,
+                                        contentDescription = "Inattivo",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = modeDesc,
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Section: OpenRouter AI Settings
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.onSurface
+                ),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.AutoAwesome,
+                            contentDescription = "AI",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = "Configurazione AI (OpenRouter)",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    OutlinedTextField(
+                        value = openRouterKey,
+                        onValueChange = {
+                            openRouterKey = it
+                            viewModel.updateOpenRouterKey(it)
+                        },
+                        label = { Text("OpenRouter API Key") },
+                        visualTransformation = if (keyVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = { keyVisible = !keyVisible }) {
+                                    Icon(
+                                        imageVector = if (keyVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                        contentDescription = "Mostra Chiave",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                IconButton(onClick = { uriHandler.openUri("https://openrouter.ai/keys") }) {
+                                    Icon(
+                                        imageVector = Icons.Default.OpenInNew,
+                                        contentDescription = "Trova API Key",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        },
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = openRouterModel,
+                        onValueChange = { viewModel.updateOpenRouterModel(it) },
+                        label = { Text("AI Model ID") },
+                        placeholder = { Text("openrouter/auto") },
+                        trailingIcon = {
+                            IconButton(onClick = { uriHandler.openUri("https://openrouter.ai/models") }) {
+                                Icon(
+                                    imageVector = Icons.Default.OpenInNew,
+                                    contentDescription = "Cerca Modelli AI",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        },
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Usa 'openrouter/auto' per far scegliere automaticamente il modello gratuito ottimale.",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        ),
+                        modifier = Modifier.padding(horizontal = 4.dp)
+                    )
+                }
+            }
+        }
+
+        // Section: Promemoria Giornalieri
+        item {
+            val dailyReminderEnabled by viewModel.dailyReminder.collectAsState()
+            val permissionContext = LocalContext.current
+            
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.onSurface
+                ),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                Icons.Default.NotificationsActive,
+                                contentDescription = "Promemoria",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = "Promemoria Giornaliero",
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                                )
+                                Text(
+                                    text = "Ricevi una notifica ogni sera alle 20:00 per mantenere la streak",
+                                    style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                )
+                            }
+                        }
+                        
+                        Switch(
+                            checked = dailyReminderEnabled,
+                            onCheckedChange = { isChecked ->
+                                viewModel.updateDailyReminder(isChecked, permissionContext)
+                                if (isChecked) {
+                                    Toast.makeText(permissionContext, "Promemoria impostato per le 20:00! 🔔", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(permissionContext, "Promemoria disattivato", Toast.LENGTH_SHORT).show()
+                                }
+                             }
+                         )
+                     }
+                 }
+             }
+         }
+
+        // Section: GitHub Settings
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.onSurface
+                ),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.Cloud,
+                            contentDescription = "GitHub",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = "Integrazione GitHub",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    OutlinedTextField(
+                        value = githubPat,
+                        onValueChange = {
+                            githubPat = it
+                            viewModel.updateGithubPat(it)
+                        },
+                        label = { Text("Personal Access Token (PAT)") },
+                        visualTransformation = if (patVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = { patVisible = !patVisible }) {
+                                    Icon(
+                                        imageVector = if (patVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                        contentDescription = "Mostra Token",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                IconButton(onClick = { uriHandler.openUri("https://github.com/settings/tokens") }) {
+                                    Icon(
+                                        imageVector = Icons.Default.OpenInNew,
+                                        contentDescription = "Cerca/Genera Token PAT",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        },
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = githubOwner,
+                        onValueChange = { viewModel.updateGithubOwner(it) },
+                        label = { Text("Account Owner") },
+                        trailingIcon = {
+                            IconButton(onClick = { uriHandler.openUri("https://github.com") }) {
+                                Icon(
+                                    imageVector = Icons.Default.OpenInNew,
+                                    contentDescription = "Cerca Utente",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        },
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = githubRepo,
+                        onValueChange = { viewModel.updateGithubRepo(it) },
+                        label = { Text("Repository Name") },
+                        trailingIcon = {
+                            IconButton(onClick = {
+                                val url = if (githubOwner.isNotBlank()) "https://github.com/$githubOwner?tab=repositories" else "https://github.com"
+                                uriHandler.openUri(url)
+                            }) {
+                                Icon(
+                                    imageVector = Icons.Default.OpenInNew,
+                                    contentDescription = "Cerca Repository",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        },
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = githubBranch,
+                        onValueChange = { viewModel.updateGithubBranch(it) },
+                        label = { Text("Branch") },
+                        trailingIcon = {
+                            IconButton(onClick = {
+                                val url = if (githubOwner.isNotBlank() && githubRepo.isNotBlank()) "https://github.com/$githubOwner/$githubRepo/branches" else "https://github.com"
+                                uriHandler.openUri(url)
+                            }) {
+                                Icon(
+                                    imageVector = Icons.Default.OpenInNew,
+                                    contentDescription = "Cerca Branch",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        },
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = foldersInput,
+                        onValueChange = { newValue ->
+                            foldersInput = newValue
+                            val set = newValue.split(",")
+                                .map { it.trim() }
+                                .filter { it.isNotEmpty() }
+                                .toSet()
+                            viewModel.updateSourceFolders(set)
+                        },
+                        label = { Text("Cartelle Note / Appunti") },
+                        placeholder = { Text("Appunti, note, Scrittura") },
+                        supportingText = {
+                            Text("Separate da virgola (es: Appunti, note, Scrittura)")
+                        },
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(
+                        onClick = { viewModel.verifyGithubConnection() },
+                        enabled = !isVerifying,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        if (isVerifying) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Verifica in corso...")
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.CloudSync,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Verifica Connessione Repository")
+                        }
+                    }
+                }
+            }
+        }
+
+    }
+
+    if (verificationResult != null) {
+        AlertDialog(
+            onDismissRequest = { viewModel.clearVerificationResult() },
+            confirmButton = {
+                Button(onClick = { viewModel.clearVerificationResult() }) {
+                    Text("OK")
+                }
+            },
+            title = {
+                val isSuccess = verificationResult?.contains("successo", ignoreCase = true) == true
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isSuccess) Icons.Default.CheckCircle else Icons.Default.Cancel,
+                        contentDescription = null,
+                        tint = if (isSuccess) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                    )
+                    Text(
+                        text = if (isSuccess) "Esito Connessione" else "Errore di Connessione",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                    )
+                }
+            },
+            text = {
+                Text(
+                    text = verificationResult ?: "",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            },
+            shape = RoundedCornerShape(20.dp)
+        )
+    }
+}
