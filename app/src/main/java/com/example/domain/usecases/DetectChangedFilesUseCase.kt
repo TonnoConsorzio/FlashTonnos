@@ -58,10 +58,29 @@ class DetectChangedFilesUseCase(
                     changedFiles.add(FileToProcess(entry.path, entry.sha))
                 }
             }
-            changedFiles
+            interleaveFilesToProcess(changedFiles)
         } catch (e: Exception) {
             e.printStackTrace()
             emptyList()
         }
+    }
+
+    private fun interleaveFilesToProcess(files: List<FileToProcess>): List<FileToProcess> {
+        if (files.isEmpty()) return files
+        val groups = files.groupBy { f ->
+            f.path.substringBeforeLast("/", "")
+        }
+        val sortedFolders = groups.keys.sorted()
+        val maxListSize = groups.values.maxOfOrNull { it.size } ?: 0
+        val result = mutableListOf<FileToProcess>()
+        for (i in 0 until maxListSize) {
+            for (folder in sortedFolders) {
+                val list = groups[folder] ?: continue
+                if (i < list.size) {
+                    result.add(list[i])
+                }
+            }
+        }
+        return result
     }
 }

@@ -1,6 +1,8 @@
 package com.example.ui.screens.settings
 
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.foundation.background
@@ -37,9 +39,20 @@ fun SettingsScreen(
     )
 ) {
     val context = LocalContext.current
-    val uriHandler = LocalUriHandler.current
     val selectedLanguage by viewModel.selectedLanguage.collectAsState()
     val lang = selectedLanguage
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            viewModel.updateDailyReminder(true, context)
+            Toast.makeText(context, Loc.get("reminder_set_toast", lang), Toast.LENGTH_SHORT).show()
+        } else {
+            viewModel.updateDailyReminder(false, context)
+            Toast.makeText(context, if (lang == "it") "Permesso di notifica negato" else "Notification permission denied", Toast.LENGTH_SHORT).show()
+        }
+    }
+    val uriHandler = LocalUriHandler.current
     val githubOwner by viewModel.githubOwner.collectAsState()
     val githubRepo by viewModel.githubRepo.collectAsState()
     val githubBranch by viewModel.githubBranch.collectAsState()
@@ -63,6 +76,8 @@ fun SettingsScreen(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding()
             .background(MaterialTheme.colorScheme.background),
         contentPadding = PaddingValues(horizontal = 24.dp, vertical = 24.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp)
@@ -499,10 +514,15 @@ fun SettingsScreen(
                         Switch(
                             checked = dailyReminderEnabled,
                             onCheckedChange = { isChecked ->
-                                viewModel.updateDailyReminder(isChecked, permissionContext)
                                 if (isChecked) {
-                                    Toast.makeText(permissionContext, Loc.get("reminder_set_toast", lang), Toast.LENGTH_SHORT).show()
+                                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                                        permissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                                    } else {
+                                        viewModel.updateDailyReminder(true, permissionContext)
+                                        Toast.makeText(permissionContext, Loc.get("reminder_set_toast", lang), Toast.LENGTH_SHORT).show()
+                                    }
                                 } else {
+                                    viewModel.updateDailyReminder(false, permissionContext)
                                     Toast.makeText(permissionContext, Loc.get("reminder_disabled_toast", lang), Toast.LENGTH_SHORT).show()
                                 }
                              }
@@ -743,6 +763,8 @@ fun SettingsScreen(
                     }
                     
                     if (showDeleteConfirm) {
+                        var confirmInput by remember { mutableStateOf("") }
+                        val isConfirmed = confirmInput.trim().equals(githubOwner.trim(), ignoreCase = true)
                         AlertDialog(
                             onDismissRequest = { showDeleteConfirm = false },
                             confirmButton = {
@@ -753,9 +775,12 @@ fun SettingsScreen(
                                             Toast.makeText(context, Loc.get("cache_cleared_toast", lang), Toast.LENGTH_SHORT).show()
                                         }
                                     },
+                                    enabled = isConfirmed,
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = MaterialTheme.colorScheme.error,
-                                        contentColor = MaterialTheme.colorScheme.onError
+                                        contentColor = MaterialTheme.colorScheme.onError,
+                                        disabledContainerColor = MaterialTheme.colorScheme.error.copy(alpha = 0.3f),
+                                        disabledContentColor = MaterialTheme.colorScheme.onError.copy(alpha = 0.5f)
                                     )
                                 ) {
                                     Text(Loc.get("yes_delete", lang))
@@ -767,7 +792,28 @@ fun SettingsScreen(
                                 }
                             },
                             title = { Text(Loc.get("confirm_delete_title", lang), fontWeight = FontWeight.Bold) },
-                            text = { Text(Loc.get("confirm_delete_desc", lang)) },
+                            text = {
+                                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Text(Loc.get("confirm_delete_desc", lang))
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = if (lang == "it") {
+                                            "Digita il nome dell'account GitHub ($githubOwner) per confermare:"
+                                        } else {
+                                            "Type the GitHub account name ($githubOwner) to confirm:"
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    OutlinedTextField(
+                                        value = confirmInput,
+                                        onValueChange = { confirmInput = it },
+                                        placeholder = { Text(githubOwner) },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                            },
                             shape = RoundedCornerShape(20.dp)
                         )
                     }
@@ -781,8 +827,28 @@ fun SettingsScreen(
         AlertDialog(
             onDismissRequest = { viewModel.clearVerificationResult() },
             confirmButton = {
-                Button(onClick = { viewModel.clearVerificationResult() }) {
-                    Text("OK")
+                val isSuccess = verificationResult?.contains("successo", ignoreCase = true) == true || verificationResult?.contains("success", ignoreCase = true) == true
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (!isSuccess) {
+                        TextButton(
+                            onClick = {
+                                val clipboardManager = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                val clipData = android.content.ClipData.newPlainText("GitHub Connection Error Log", verificationResult ?: "")
+                                clipboardManager.setPrimaryClip(clipData)
+                                Toast.makeText(context, if (lang == "it") "Copiato negli appunti! 📋" else "Copied to clipboard! 📋", Toast.LENGTH_SHORT).show()
+                            }
+                        ) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(if (lang == "it") "Copia errore" else "Copy error")
+                        }
+                    }
+                    Button(onClick = { viewModel.clearVerificationResult() }) {
+                        Text("OK")
+                    }
                 }
             },
             title = {

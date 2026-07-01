@@ -38,14 +38,18 @@ class GenerateViewModel(private val repository: FlashcardRepository) : ViewModel
     private val _trackedFiles = MutableStateFlow<List<com.example.data.local.entities.TrackedFileEntity>>(emptyList())
     val trackedFiles: StateFlow<List<com.example.data.local.entities.TrackedFileEntity>> = _trackedFiles.asStateFlow()
 
+    private fun normalizePath(path: String): String {
+        return path.trim('/').replace("\\", "/").lowercase()
+    }
+
     val trackedFileStats: StateFlow<List<TrackedFileStats>> = combine(
         _trackedFiles,
         repository.getAllFlashcardsFlow(),
         repository.getAllDeepDiveCardsFlow()
     ) { files, flashcards, deepDives ->
         files.map { file ->
-            val fcCount = flashcards.count { it.source_file == file.path }
-            val ddCount = deepDives.count { it.source_file == file.path }
+            val fcCount = flashcards.count { normalizePath(it.source_file) == normalizePath(file.path) }
+            val ddCount = deepDives.count { normalizePath(it.source_file) == normalizePath(file.path) }
             TrackedFileStats(
                 path = file.path,
                 lastSha = file.lastSha,
@@ -82,10 +86,13 @@ class GenerateViewModel(private val repository: FlashcardRepository) : ViewModel
     }
 
     fun triggerAutoGeneration() {
-        viewModelScope.launch {
-            repository.runAutoGeneration()
+        repository.startAutoGenerationBackground {
             loadTrackedFiles()
         }
+    }
+
+    fun cancelGeneration() {
+        repository.cancelGeneration()
     }
 
     fun selectFile(file: String?) {

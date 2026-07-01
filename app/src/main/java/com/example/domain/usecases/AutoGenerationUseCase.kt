@@ -82,6 +82,9 @@ class AutoGenerationUseCase(
             )
 
             try {
+                // Elimina le vecchie card locali di questo file prima di rigenerarle/aggiornarle
+                repository.deleteLocalCardsBySourceFile(file.path)
+
                 // 1. Scarica il contenuto del file
                 val fileContentResponse = githubApi.getContent(token, owner, repo, file.path, branch)
                 val base64Content = fileContentResponse.content?.replace("\n", "") ?: continue

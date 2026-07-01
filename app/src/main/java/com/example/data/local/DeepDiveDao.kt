@@ -28,6 +28,9 @@ interface DeepDiveDao {
     @Update
     suspend fun updateCard(card: DeepDiveCardEntity)
 
+    @Query("DELETE FROM deep_dive_cards WHERE sourceFile = :sourceFile")
+    suspend fun deleteCardsBySourceFile(sourceFile: String)
+
     @Query("DELETE FROM deep_dive_cards")
     suspend fun clearCards()
 

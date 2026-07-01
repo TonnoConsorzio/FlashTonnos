@@ -49,20 +49,20 @@ class SettingsViewModel(
     fun getGithubPat() = preferences.getGithubPat()
     fun getOpenRouterKey() = preferences.getOpenRouterKey()
 
-    fun updateGithubPat(pat: String) = preferences.setGithubPat(pat)
-    fun updateOpenRouterKey(key: String) = preferences.setOpenRouterKey(key)
+    fun updateGithubPat(pat: String) = preferences.setGithubPat(pat.trim())
+    fun updateOpenRouterKey(key: String) = preferences.setOpenRouterKey(key.trim())
 
     fun updateGithubOwner(owner: String) {
-        viewModelScope.launch { preferences.updateGithubOwner(owner) }
+        viewModelScope.launch { preferences.updateGithubOwner(owner.trim()) }
     }
     fun updateGithubRepo(repo: String) {
-        viewModelScope.launch { preferences.updateGithubRepo(repo) }
+        viewModelScope.launch { preferences.updateGithubRepo(repo.trim()) }
     }
     fun updateGithubBranch(branch: String) {
-        viewModelScope.launch { preferences.updateGithubBranch(branch) }
+        viewModelScope.launch { preferences.updateGithubBranch(branch.trim()) }
     }
     fun updateGithubCardsFolder(folder: String) {
-        viewModelScope.launch { preferences.updateGithubCardsFolder(folder) }
+        viewModelScope.launch { preferences.updateGithubCardsFolder(folder.trim()) }
     }
     fun updateOpenRouterModel(model: String) {
         viewModelScope.launch { preferences.updateOpenRouterModel(model) }

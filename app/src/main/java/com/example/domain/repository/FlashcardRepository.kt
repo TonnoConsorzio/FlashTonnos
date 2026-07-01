@@ -54,15 +54,31 @@ class FlashcardRepository(
     val generationResult: StateFlow<String?> = _generationResult.asStateFlow()
 
     val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var generationJob: kotlinx.coroutines.Job? = null
 
     init {
         repositoryScope.launch {
             kotlinx.coroutines.delay(2000)
             val autoEnabled = appPreferences.autoGenerateEnabledFlow.first()
             if (autoEnabled) {
-                runAutoGeneration()
+                startAutoGenerationBackground()
             }
         }
+    }
+
+    fun startAutoGenerationBackground(onCompleted: () -> Unit = {}) {
+        if (_isGenerating.value) return
+        generationJob = repositoryScope.launch {
+            runAutoGeneration()
+            onCompleted()
+        }
+    }
+
+    fun cancelGeneration() {
+        generationJob?.cancel()
+        generationJob = null
+        _isGenerating.value = false
+        _generationProgress.value = "Generazione annullata / Generation cancelled"
     }
 
     suspend fun getAllTrackedFiles(): List<com.example.data.local.entities.TrackedFileEntity> {
@@ -130,7 +146,7 @@ class FlashcardRepository(
     fun startGeneratingCards(sourceFile: String, amount: Int, type: String) {
         _isGenerating.value = true
         _generationResult.value = null
-        repositoryScope.launch {
+        generationJob = repositoryScope.launch {
             val lang = appPreferences.selectedLanguageFlow.first()
             _generationProgress.value = if (lang == "it") "Avvio generazione dal file: $sourceFile..." else "Starting generation from file: $sourceFile..."
             try {
@@ -154,14 +170,34 @@ class FlashcardRepository(
         }
     }
 
+    private fun interleaveFiles(files: List<String>): List<String> {
+        if (files.isEmpty()) return files
+        val groups = files.groupBy { path ->
+            path.substringBeforeLast("/", "")
+        }
+        val sortedFolders = groups.keys.sorted()
+        val maxListSize = groups.values.maxOfOrNull { it.size } ?: 0
+        val result = mutableListOf<String>()
+        for (i in 0 until maxListSize) {
+            for (folder in sortedFolders) {
+                val list = groups[folder] ?: continue
+                if (i < list.size) {
+                    result.add(list[i])
+                }
+            }
+        }
+        return result
+    }
+
     fun startGeneratingAllCardsMassively(type: String) {
         _isGenerating.value = true
         _generationResult.value = null
-        repositoryScope.launch {
+        generationJob = repositoryScope.launch {
             val lang = appPreferences.selectedLanguageFlow.first()
             _generationProgress.value = if (lang == "it") "Scansione dei file .md nelle cartelle configurate..." else "Scanning .md files in configured folders..."
             try {
-                val files = fetchMarkdownFilesFromConfiguredFolders()
+                val rawFiles = fetchMarkdownFilesFromConfiguredFolders()
+                val files = interleaveFiles(rawFiles)
                 if (files.isEmpty()) {
                     _generationResult.value = if (lang == "it") {
                         "Nessun file .md trovato nelle cartelle configurate. Controlla le impostazioni."
@@ -979,8 +1015,16 @@ class FlashcardRepository(
         appPreferences.updateDemoInitialized(true)
     }
 
+    suspend fun deleteLocalCardsBySourceFile(sourceFile: String) {
+        cardDao.deleteCardsBySourceFile(sourceFile)
+        deepDiveDao.deleteCardsBySourceFile(sourceFile)
+    }
+
     suspend fun clearAllCards() {
         cardDao.clearAll()
+        deepDiveDao.clearCards()
+        deepDiveDao.clearInteractions()
+        deepDiveDao.clearTrackedFiles()
         appPreferences.updateDemoInitialized(false)
     }
 }

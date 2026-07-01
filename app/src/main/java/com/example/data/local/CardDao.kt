@@ -28,6 +28,9 @@ interface CardDao {
     @Update
     suspend fun update(card: FlashcardEntity)
 
+    @Query("DELETE FROM flashcards WHERE sourceFile = :sourceFile")
+    suspend fun deleteCardsBySourceFile(sourceFile: String)
+
     @Query("DELETE FROM flashcards")
     suspend fun clearAll()
 }

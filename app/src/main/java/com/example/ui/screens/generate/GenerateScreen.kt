@@ -187,26 +187,51 @@ fun GenerateScreen(
                 }
             }
 
-            // Bottone di Sincronizzazione / Rilevamento manuale
-            Button(
-                onClick = { viewModel.triggerAutoGeneration() },
-                enabled = !isGenerating,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp)
-                    .height(56.dp)
-                    .testTag("sync_now_button"),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Sync,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = if (lang == "it") "Rileva Novità e Genera Ora" else "Scan Updates & Generate"
-                )
+            // Bottone di Sincronizzazione o Interruzione della generazione
+            if (isGenerating) {
+                Button(
+                    onClick = { viewModel.cancelGeneration() },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp)
+                        .height(56.dp)
+                        .testTag("cancel_generation_button"),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Cancel,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (lang == "it") "Interrompi Generazione" else "Stop Generation"
+                    )
+                }
+            } else {
+                Button(
+                    onClick = { viewModel.triggerAutoGeneration() },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp)
+                        .height(56.dp)
+                        .testTag("sync_now_button"),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Sync,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (lang == "it") "Rileva Novità e Genera Ora" else "Scan Updates & Generate"
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(12.dp))

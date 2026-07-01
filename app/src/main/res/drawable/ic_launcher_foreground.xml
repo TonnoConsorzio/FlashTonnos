@@ -1,9 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
-    android:viewportWidth="24"
-    android:viewportHeight="24">
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Back Card (Shadowed / Purple Tint) -->
+    <path
+        android:fillColor="#3D2B85"
+        android:pathData="M 32,24 h 36 a 8,8 0 0 1 8,8 v 46 a 8,8 0 0 1 -8,8 h -36 a 8,8 0 0 1 -8,-8 v -46 a 8,8 0 0 1 8,-8 z" />
+    <path
+        android:fillColor="#6200EE"
+        android:pathData="M 34,26 h 32 a 6,6 0 0 1 6,6 v 42 a 6,6 0 0 1 -6,6 h -32 a 6,6 0 0 1 -6,-6 v -42 a 6,6 0 0 1 6,-6 z" />
+
+    <!-- Front Card (Neon cyan/blue outline & white card body) -->
+    <path
+        android:fillColor="#00B8D4"
+        android:pathData="M 48,38 h 36 a 8,8 0 0 1 8,8 v 46 a 8,8 0 0 1 -8,8 h -36 a 8,8 0 0 1 -8,-8 v -46 a 8,8 0 0 1 8,-8 z" />
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M19,9l1.25,-2.75L23,5l-2.75,-1.25L19,1l-1.25,2.75L15,5l2.75,1.25L19,9zM11.5,9.5L9,4L6.5,9.5L1,12l5.5,2.5L9,20l2.5,-5.5L17,12l-5.5,-2.5zM9,15.11l-0.79,-1.73L6.48,12.6l1.73,-0.79L9,10.02l0.79,1.73l1.73,0.79l-1.73,0.79L9,15.11z"/>
+        android:pathData="M 50,40 h 32 a 6,6 0 0 1 6,6 v 42 a 6,6 0 0 1 -6,6 h -32 a 6,6 0 0 1 -6,-6 v -42 a 6,6 0 0 1 6,-6 z" />
+
+    <!-- Spark / Lightning Bolt inside Front Card -->
+    <!-- Centered at X=66, Y=61 -->
+    <path
+        android:fillColor="#FFD600"
+        android:pathData="M69,47 L57,63 h10 L63,79 L75,63 h-10 Z" />
 </vector>
