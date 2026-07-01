@@ -14,6 +14,8 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.Whatshot
 import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.ThumbUp
+import androidx.compose.material.icons.filled.ThumbDown
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -28,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.di.AppContainer
+import com.example.ui.utils.Loc
 
 @Composable
 fun StatsScreen(
@@ -40,6 +43,8 @@ fun StatsScreen(
     )
 ) {
     val stats by viewModel.stats.collectAsState()
+    val selectedLanguage by viewModel.selectedLanguage.collectAsState()
+    val lang = selectedLanguage
 
     LazyColumn(
         modifier = Modifier
@@ -61,14 +66,14 @@ fun StatsScreen(
                         ) {
                             Icon(
                                 Icons.Default.ArrowBack,
-                                contentDescription = "Indietro",
+                                contentDescription = if (lang == "it") "Indietro" else "Back",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(24.dp)
                             )
                         }
                     }
                     Text(
-                        text = "Statistiche Studio",
+                        text = Loc.get("stats_header", lang),
                         style = MaterialTheme.typography.headlineMedium.copy(
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onBackground,
@@ -86,7 +91,7 @@ fun StatsScreen(
                     horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     StatCard(
-                        title = "Accuratezza",
+                        title = Loc.get("stat_accuracy", lang),
                         value = "${stats["accuracy"]}%",
                         icon = Icons.Default.TrendingUp,
                         iconColor = MaterialTheme.colorScheme.primary,
@@ -94,7 +99,7 @@ fun StatsScreen(
                         modifier = Modifier.weight(1f)
                     )
                     StatCard(
-                        title = "Card Totali",
+                        title = Loc.get("stat_total_cards", lang),
                         value = "${stats["total"]}",
                         icon = Icons.Default.Style,
                         iconColor = MaterialTheme.colorScheme.secondary,
@@ -109,7 +114,7 @@ fun StatsScreen(
                     horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     StatCard(
-                        title = "Corrette",
+                        title = Loc.get("correct_label", lang),
                         value = "${stats["correct"]}",
                         icon = Icons.Default.CheckCircle,
                         iconColor = Color(0xFF4CAF50),
@@ -117,7 +122,7 @@ fun StatsScreen(
                         modifier = Modifier.weight(1f)
                     )
                     StatCard(
-                        title = "Errate",
+                        title = Loc.get("incorrect_label", lang),
                         value = "${stats["incorrect"]}",
                         icon = Icons.Default.Cancel,
                         iconColor = MaterialTheme.colorScheme.error,
@@ -128,8 +133,11 @@ fun StatsScreen(
             }
             item {
                 Text(
-                    text = "Streak & Record personali 🏆",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    text = Loc.get("streak_records_title", lang),
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground
+                    ),
                     modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
                 )
             }
@@ -158,7 +166,7 @@ fun StatsScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "Studio Giornaliero",
+                                    text = Loc.get("daily_study_label", lang),
                                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 )
                                 Icon(
@@ -170,12 +178,12 @@ fun StatsScreen(
                             }
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = "$dailyStreak ${if (dailyStreak == 1) "giorno" else "giorni"}",
+                                text = "$dailyStreak ${if (dailyStreak == 1) Loc.get("day_label", lang) else Loc.get("days_label", lang)}",
                                 style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "Record: $maxDaily ${if (maxDaily == 1) "giorno" else "giorni"}",
+                                text = "Record: $maxDaily ${if (maxDaily == 1) Loc.get("day_label", lang) else Loc.get("days_label", lang)}",
                                 style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
                             )
                         }
@@ -196,7 +204,7 @@ fun StatsScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "Consecutive Esatte",
+                                    text = Loc.get("consecutive_correct_label", lang),
                                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 )
                                 Icon(
@@ -208,7 +216,7 @@ fun StatsScreen(
                             }
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = "$correctStreak ${if (correctStreak == 1) "esatta" else "esatte"}",
+                                text = "$correctStreak ${if (correctStreak == 1) Loc.get("correct_singular", lang) else Loc.get("correct_plural", lang)}",
                                 style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                             )
                             Spacer(modifier = Modifier.height(4.dp))
@@ -230,7 +238,8 @@ fun StatsScreen(
                     easy = easy,
                     medium = medium,
                     hard = hard,
-                    total = total
+                    total = total,
+                    lang = lang
                 )
             }
         } else {
@@ -260,7 +269,7 @@ fun StatsScreen(
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = "Nessuna statistica disponibile",
+                            text = Loc.get("no_stats_available", lang),
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
@@ -269,7 +278,7 @@ fun StatsScreen(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Inizia a rispondere alle flashcard nella schermata principale per generare le tue prime metriche di studio!",
+                            text = Loc.get("no_stats_desc", lang),
                             style = MaterialTheme.typography.bodyMedium.copy(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             ),
@@ -279,6 +288,129 @@ fun StatsScreen(
                 }
             }
         }
+
+        // --- DEEP DIVE STATS SECTION ---
+        if (stats.isNotEmpty()) {
+            val totalDwellSec = stats["dd_total_dwell_sec"] as? Long ?: 0L
+            val likes = stats["dd_positive_count"] as? Int ?: 0
+            val dislikes = stats["dd_negative_count"] as? Int ?: 0
+            val topicDwell = stats["dd_topic_dwell"] as? Map<String, Long> ?: emptyMap()
+
+            item {
+                Text(
+                    text = if (lang == "it") "Statistiche Approfondimenti" else "Deep Dive Analytics",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
+                )
+            }
+
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    // Dwell Time Card
+                    Card(
+                        modifier = Modifier.weight(1.2f),
+                        shape = RoundedCornerShape(24.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                        ),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                text = if (lang == "it") "Tempo di Lettura" else "Reading Time",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = formatDwellTime(totalDwellSec, lang),
+                                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold),
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                    }
+
+                    // Likes/Dislikes Card
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(24.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                        ),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                text = if (lang == "it") "Feedback" else "Feedback",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Icon(Icons.Default.ThumbUp, contentDescription = "Likes", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                                    Text(text = "$likes", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold))
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Icon(Icons.Default.ThumbDown, contentDescription = "Dislikes", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                                    Text(text = "$dislikes", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Dwell Time by Topic/Tag (Interests)
+            if (topicDwell.isNotEmpty()) {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(24.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                    ) {
+                        Column(modifier = Modifier.padding(20.dp)) {
+                            Text(
+                                text = if (lang == "it") "Interessi per Argomento" else "Reading Time by Topic",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            val sortedTopics = topicDwell.toList().sortedByDescending { it.second }.take(4)
+                            sortedTopics.forEach { (topic, sec) ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
+                                        Text(text = topic, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium))
+                                    }
+                                    Text(text = formatDwellTime(sec, lang), style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun formatDwellTime(seconds: Long, lang: String): String {
+    if (seconds == 0L) return if (lang == "it") "0 sec" else "0s"
+    val mins = seconds / 60
+    val secs = seconds % 60
+    return if (mins > 0) {
+        if (lang == "it") "${mins}m ${secs}s" else "${mins}m ${secs}s"
+    } else {
+        if (lang == "it") "${secs}s" else "${secs}s"
     }
 }
 
@@ -349,7 +481,8 @@ fun DifficultyDistributionChart(
     easy: Float,
     medium: Float,
     hard: Float,
-    total: Float
+    total: Float,
+    lang: String
 ) {
     val pEasy = if (total > 0) easy / total else 0f
     val pMedium = if (total > 0) medium / total else 0f
@@ -365,7 +498,7 @@ fun DifficultyDistributionChart(
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
             Text(
-                text = "Distribuzione Difficoltà",
+                text = Loc.get("difficulty_distribution", lang),
                 style = MaterialTheme.typography.titleMedium.copy(
                     fontWeight = FontWeight.Bold, 
                     color = MaterialTheme.colorScheme.onSurface
@@ -447,16 +580,16 @@ fun DifficultyDistributionChart(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                LegendItem(color = Color(0xFF81C784), label = "Facili", count = easy.toInt())
-                LegendItem(color = Color(0xFFFFB74D), label = "Medie", count = medium.toInt())
-                LegendItem(color = Color(0xFFE57373), label = "Difficili", count = hard.toInt())
+                LegendItem(color = Color(0xFF81C784), label = Loc.get("easy_label", lang), count = easy.toInt(), lang = lang)
+                LegendItem(color = Color(0xFFFFB74D), label = Loc.get("medium_label", lang), count = medium.toInt(), lang = lang)
+                LegendItem(color = Color(0xFFE57373), label = Loc.get("hard_label", lang), count = hard.toInt(), lang = lang)
             }
         }
     }
 }
 
 @Composable
-fun LegendItem(color: Color, label: String, count: Int) {
+fun LegendItem(color: Color, label: String, count: Int, lang: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(
             modifier = Modifier
@@ -474,7 +607,7 @@ fun LegendItem(color: Color, label: String, count: Int) {
                 )
             )
             Text(
-                text = "$count card",
+                text = "$count ${if (lang == "it") "card" else if (count == 1) "card" else "cards"}",
                 style = MaterialTheme.typography.labelSmall.copy(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

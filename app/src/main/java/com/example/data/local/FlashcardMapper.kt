@@ -29,7 +29,9 @@ object FlashcardMapper {
             timesCorrect = domain.times_correct,
             lastShown = domain.last_shown,
             difficulty = domain.difficulty,
-            topicsJson = adapter.toJson(domain.topics)
+            topicsJson = adapter.toJson(domain.topics),
+            topic = domain.topic,
+            subtopic = domain.subtopic
         )
     }
 
@@ -52,7 +54,9 @@ object FlashcardMapper {
             times_correct = entity.timesCorrect,
             last_shown = entity.lastShown,
             difficulty = entity.difficulty,
-            topics = adapter.fromJson(entity.topicsJson) ?: emptyList()
+            topics = adapter.fromJson(entity.topicsJson) ?: emptyList(),
+            topic = entity.topic,
+            subtopic = entity.subtopic
         )
     }
 }

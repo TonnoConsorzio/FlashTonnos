@@ -5,26 +5,22 @@ import java.time.Instant
 import java.util.UUID
 
 @JsonClass(generateAdapter = true)
-data class Flashcard(
+data class DeepDiveCard(
     val id: String = UUID.randomUUID().toString(),
-    val type: String, // "true_false" or "multiple_choice"
-    val question: String,
-    val correct_answer: String,
-    val options: List<String>,
-    val explanation: String,
+    val content_type: String = "deep_dive",
+    val hook: String = "",
+    val body: String = "",
+    val tags: List<String> = emptyList(),
     val source_file: String = "",
     val source_excerpt: String = "",
+    val topic: String = "",
+    val subtopic: String = "",
     val created_at: String = Instant.now().toString(),
     val updated_at: String = Instant.now().toString(),
-    val status: String = "active", // "active", "flagged", "reviewed"
+    val status: String = "active", // "active" | "flagged" | "reviewed"
     val flag_note: String? = null,
     val ai_review: String? = null,
     val times_shown: Int = 0,
-    val times_correct: Int = 0,
     val last_shown: String? = null,
-    val difficulty: String = "medium", // "easy", "medium", "hard"
-    val topics: List<String> = emptyList(),
-    val source_flag: String? = null,
-    val topic: String = "",
-    val subtopic: String = ""
+    val source_flag: String? = null
 )

@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.di.AppContainer
 import com.example.ui.theme.AppThemes
+import com.example.ui.utils.Loc
 
 @Composable
 fun SettingsScreen(
@@ -37,9 +38,12 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
+    val selectedLanguage by viewModel.selectedLanguage.collectAsState()
+    val lang = selectedLanguage
     val githubOwner by viewModel.githubOwner.collectAsState()
     val githubRepo by viewModel.githubRepo.collectAsState()
     val githubBranch by viewModel.githubBranch.collectAsState()
+    val githubCardsFolder by viewModel.githubCardsFolder.collectAsState()
     val openRouterModel by viewModel.openRouterModel.collectAsState()
     val selectedThemeIndex by viewModel.selectedTheme.collectAsState()
     val studyMode by viewModel.studyMode.collectAsState()
@@ -76,14 +80,14 @@ fun SettingsScreen(
                         ) {
                             Icon(
                                 Icons.Default.ArrowBack,
-                                contentDescription = "Indietro",
+                                contentDescription = if (lang == "it") "Indietro" else "Back",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(24.dp)
                             )
                         }
                     }
                     Text(
-                        text = "Impostazioni",
+                        text = Loc.get("settings_title", lang),
                         style = MaterialTheme.typography.headlineMedium.copy(
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onBackground,
@@ -92,7 +96,7 @@ fun SettingsScreen(
                     )
                 }
                 Text(
-                    text = "Personalizza l'app, il modello AI e l'integrazione GitHub",
+                    text = Loc.get("settings_desc", lang),
                     style = MaterialTheme.typography.bodyMedium.copy(
                         color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
                     )
@@ -121,7 +125,7 @@ fun SettingsScreen(
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Text(
-                            text = "Tema Visivo",
+                            text = Loc.get("visual_theme", lang),
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
@@ -163,14 +167,14 @@ fun SettingsScreen(
                             Spacer(modifier = Modifier.width(16.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = palette.name,
+                                    text = Loc.get("theme_${index}_name", lang),
                                     style = MaterialTheme.typography.bodyLarge.copy(
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
                                 )
                                 Text(
-                                    text = palette.description,
+                                    text = Loc.get("theme_${index}_desc", lang),
                                     style = MaterialTheme.typography.bodySmall.copy(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -181,6 +185,86 @@ fun SettingsScreen(
                                     Icons.Default.CheckCircle,
                                     contentDescription = "Selezionato",
                                     tint = palette.primary
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Section: Language Selection
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.onSurface
+                ),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.Language,
+                            contentDescription = "Language",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = Loc.get("language_label", lang),
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    val languages = listOf(
+                        "en" to Loc.get("lang_en", lang),
+                        "it" to Loc.get("lang_it", lang)
+                    )
+
+                    languages.forEach { (langKey, langTitle) ->
+                        val isSelected = lang == langKey
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f) else Color.Transparent)
+                                .border(
+                                    width = if (isSelected) 2.dp else 1.dp,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                                    shape = RoundedCornerShape(16.dp)
+                                )
+                                .clickable { viewModel.updateSelectedLanguage(langKey) }
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = if (langKey == "en") "🇬🇧 " else "🇮🇹 ",
+                                    style = MaterialTheme.typography.bodyLarge
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = langTitle,
+                                    style = MaterialTheme.typography.bodyLarge.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                )
+                            }
+                            if (isSelected) {
+                                Icon(
+                                    Icons.Default.CheckCircle,
+                                    contentDescription = "Selected",
+                                    tint = MaterialTheme.colorScheme.primary
                                 )
                             }
                         }
@@ -210,7 +294,7 @@ fun SettingsScreen(
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Text(
-                            text = "Modalità di Studio Default",
+                            text = Loc.get("default_study_mode", lang),
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
@@ -220,9 +304,9 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(16.dp))
 
                     val modes = listOf(
-                        Triple("classic", "Classic Flashcards", "🃏 Domande a risposta chiusa (V/F, scelta multipla)"),
-                        Triple("questions", "Solo Domande", "❓ Domande dirette per stimolare il richiamo attivo"),
-                        Triple("curiosities", "Curiosità e Pillole", "💡 Fatti storici e curiosità divertenti sull'argomento")
+                        Triple("classic", Loc.get("mode_classic_label", lang), Loc.get("mode_classic_detail", lang)),
+                        Triple("questions", Loc.get("mode_questions_label", lang), Loc.get("mode_questions_detail", lang)),
+                        Triple("curiosities", Loc.get("mode_curiosities_label", lang), Loc.get("mode_curiosities_detail", lang))
                     )
 
                     modes.forEach { (modeKey, modeTitle, modeDesc) ->
@@ -256,13 +340,13 @@ fun SettingsScreen(
                                 if (isSelected) {
                                     Icon(
                                         Icons.Default.RadioButtonChecked,
-                                        contentDescription = "Attivo",
+                                        contentDescription = if (lang == "it") "Attivo" else "Active",
                                         tint = MaterialTheme.colorScheme.primary
                                     )
                                 } else {
                                     Icon(
                                         Icons.Default.RadioButtonUnchecked,
-                                        contentDescription = "Inattivo",
+                                        contentDescription = if (lang == "it") "Inattivo" else "Inactive",
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                                     )
                                 }
@@ -301,7 +385,7 @@ fun SettingsScreen(
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Text(
-                            text = "Configurazione AI (OpenRouter)",
+                            text = Loc.get("ai_config_title", lang),
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
@@ -316,21 +400,21 @@ fun SettingsScreen(
                             openRouterKey = it
                             viewModel.updateOpenRouterKey(it)
                         },
-                        label = { Text("OpenRouter API Key") },
+                        label = { Text(Loc.get("openrouter_key", lang)) },
                         visualTransformation = if (keyVisible) VisualTransformation.None else PasswordVisualTransformation(),
                         trailingIcon = {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 IconButton(onClick = { keyVisible = !keyVisible }) {
                                     Icon(
                                         imageVector = if (keyVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                                        contentDescription = "Mostra Chiave",
+                                        contentDescription = if (lang == "it") "Mostra Chiave" else "Show Key",
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                                 IconButton(onClick = { uriHandler.openUri("https://openrouter.ai/keys") }) {
                                     Icon(
                                         imageVector = Icons.Default.OpenInNew,
-                                        contentDescription = "Trova API Key",
+                                        contentDescription = if (lang == "it") "Trova API Key" else "Get API Key",
                                         tint = MaterialTheme.colorScheme.primary
                                     )
                                 }
@@ -349,7 +433,7 @@ fun SettingsScreen(
                             IconButton(onClick = { uriHandler.openUri("https://openrouter.ai/models") }) {
                                 Icon(
                                     imageVector = Icons.Default.OpenInNew,
-                                    contentDescription = "Cerca Modelli AI",
+                                    contentDescription = if (lang == "it") "Cerca Modelli AI" else "Search AI Models",
                                     tint = MaterialTheme.colorScheme.primary
                                 )
                             }
@@ -359,7 +443,7 @@ fun SettingsScreen(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Usa 'openrouter/auto' per far scegliere automaticamente il modello gratuito ottimale.",
+                        text = Loc.get("ai_model_desc", lang),
                         style = MaterialTheme.typography.labelSmall.copy(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         ),
@@ -402,11 +486,11 @@ fun SettingsScreen(
                             Spacer(modifier = Modifier.width(12.dp))
                             Column {
                                 Text(
-                                    text = "Promemoria Giornaliero",
+                                    text = Loc.get("daily_reminder", lang),
                                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                                 )
                                 Text(
-                                    text = "Ricevi una notifica ogni sera alle 20:00 per mantenere la streak",
+                                    text = Loc.get("daily_reminder_desc", lang),
                                     style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 )
                             }
@@ -417,9 +501,9 @@ fun SettingsScreen(
                             onCheckedChange = { isChecked ->
                                 viewModel.updateDailyReminder(isChecked, permissionContext)
                                 if (isChecked) {
-                                    Toast.makeText(permissionContext, "Promemoria impostato per le 20:00! 🔔", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(permissionContext, Loc.get("reminder_set_toast", lang), Toast.LENGTH_SHORT).show()
                                 } else {
-                                    Toast.makeText(permissionContext, "Promemoria disattivato", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(permissionContext, Loc.get("reminder_disabled_toast", lang), Toast.LENGTH_SHORT).show()
                                 }
                              }
                          )
@@ -449,7 +533,7 @@ fun SettingsScreen(
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Text(
-                            text = "Integrazione GitHub",
+                            text = Loc.get("github_integration", lang),
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
@@ -464,21 +548,21 @@ fun SettingsScreen(
                             githubPat = it
                             viewModel.updateGithubPat(it)
                         },
-                        label = { Text("Personal Access Token (PAT)") },
+                        label = { Text(Loc.get("github_token", lang)) },
                         visualTransformation = if (patVisible) VisualTransformation.None else PasswordVisualTransformation(),
                         trailingIcon = {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 IconButton(onClick = { patVisible = !patVisible }) {
                                     Icon(
                                         imageVector = if (patVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                                        contentDescription = "Mostra Token",
+                                        contentDescription = if (lang == "it") "Mostra Token" else "Show Token",
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                                 IconButton(onClick = { uriHandler.openUri("https://github.com/settings/tokens") }) {
                                     Icon(
                                         imageVector = Icons.Default.OpenInNew,
-                                        contentDescription = "Cerca/Genera Token PAT",
+                                        contentDescription = if (lang == "it") "Cerca/Genera Token PAT" else "Search/Generate PAT",
                                         tint = MaterialTheme.colorScheme.primary
                                     )
                                 }
@@ -491,12 +575,12 @@ fun SettingsScreen(
                     OutlinedTextField(
                         value = githubOwner,
                         onValueChange = { viewModel.updateGithubOwner(it) },
-                        label = { Text("Account Owner") },
+                        label = { Text(Loc.get("account_owner", lang)) },
                         trailingIcon = {
                             IconButton(onClick = { uriHandler.openUri("https://github.com") }) {
                                 Icon(
                                     imageVector = Icons.Default.OpenInNew,
-                                    contentDescription = "Cerca Utente",
+                                    contentDescription = if (lang == "it") "Cerca Utente" else "Search User",
                                     tint = MaterialTheme.colorScheme.primary
                                 )
                             }
@@ -508,7 +592,7 @@ fun SettingsScreen(
                     OutlinedTextField(
                         value = githubRepo,
                         onValueChange = { viewModel.updateGithubRepo(it) },
-                        label = { Text("Repository Name") },
+                        label = { Text(Loc.get("repo_name", lang)) },
                         trailingIcon = {
                             IconButton(onClick = {
                                 val url = if (githubOwner.isNotBlank()) "https://github.com/$githubOwner?tab=repositories" else "https://github.com"
@@ -516,7 +600,7 @@ fun SettingsScreen(
                             }) {
                                 Icon(
                                     imageVector = Icons.Default.OpenInNew,
-                                    contentDescription = "Cerca Repository",
+                                    contentDescription = if (lang == "it") "Cerca Repository" else "Search Repository",
                                     tint = MaterialTheme.colorScheme.primary
                                 )
                             }
@@ -528,7 +612,7 @@ fun SettingsScreen(
                     OutlinedTextField(
                         value = githubBranch,
                         onValueChange = { viewModel.updateGithubBranch(it) },
-                        label = { Text("Branch") },
+                        label = { Text(Loc.get("branch", lang)) },
                         trailingIcon = {
                             IconButton(onClick = {
                                 val url = if (githubOwner.isNotBlank() && githubRepo.isNotBlank()) "https://github.com/$githubOwner/$githubRepo/branches" else "https://github.com"
@@ -536,11 +620,20 @@ fun SettingsScreen(
                             }) {
                                 Icon(
                                     imageVector = Icons.Default.OpenInNew,
-                                    contentDescription = "Cerca Branch",
+                                    contentDescription = if (lang == "it") "Cerca Branch" else "Search Branch",
                                     tint = MaterialTheme.colorScheme.primary
                                 )
                             }
                         },
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = githubCardsFolder,
+                        onValueChange = { viewModel.updateGithubCardsFolder(it) },
+                        label = { Text(Loc.get("github_cards_folder", lang)) },
+                        placeholder = { Text(if (lang == "it") "es. flashcards" else "e.g. flashcards") },
                         shape = RoundedCornerShape(16.dp),
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -555,10 +648,10 @@ fun SettingsScreen(
                                 .toSet()
                             viewModel.updateSourceFolders(set)
                         },
-                        label = { Text("Cartelle Note / Appunti") },
-                        placeholder = { Text("Appunti, note, Scrittura") },
+                        label = { Text(Loc.get("note_folders", lang)) },
+                        placeholder = { Text(if (lang == "it") "Appunti, note, Scrittura" else "Notes, Outlines, Writing") },
                         supportingText = {
-                            Text("Separate da virgola (es: Appunti, note, Scrittura)")
+                            Text(Loc.get("note_folders_desc", lang))
                         },
                         shape = RoundedCornerShape(16.dp),
                         modifier = Modifier.fillMaxWidth()
@@ -577,7 +670,7 @@ fun SettingsScreen(
                                 color = MaterialTheme.colorScheme.onPrimary
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Verifica in corso...")
+                            Text(Loc.get("verifying_conn", lang))
                         } else {
                             Icon(
                                 imageVector = Icons.Default.CloudSync,
@@ -585,8 +678,98 @@ fun SettingsScreen(
                                 modifier = Modifier.size(20.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Verifica Connessione Repository")
+                            Text(Loc.get("verify_conn_btn", lang))
                         }
+                    }
+                }
+            }
+        }
+
+        // Section: Gestione Dati Locale (Local Data Management)
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.onSurface
+                ),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.DeleteSweep,
+                            contentDescription = "Database",
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = Loc.get("local_data_mgmt", lang),
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = Loc.get("local_data_desc", lang),
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    var showDeleteConfirm by remember { mutableStateOf(false) }
+                    
+                    Button(
+                        onClick = { showDeleteConfirm = true },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer,
+                            contentColor = MaterialTheme.colorScheme.onErrorContainer
+                        ),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DeleteForever,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(Loc.get("clear_cache_btn", lang))
+                    }
+                    
+                    if (showDeleteConfirm) {
+                        AlertDialog(
+                            onDismissRequest = { showDeleteConfirm = false },
+                            confirmButton = {
+                                Button(
+                                    onClick = {
+                                        showDeleteConfirm = false
+                                        viewModel.clearAllCards {
+                                            Toast.makeText(context, Loc.get("cache_cleared_toast", lang), Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = MaterialTheme.colorScheme.error,
+                                        contentColor = MaterialTheme.colorScheme.onError
+                                    )
+                                ) {
+                                    Text(Loc.get("yes_delete", lang))
+                                }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showDeleteConfirm = false }) {
+                                    Text(Loc.get("cancel", lang))
+                                }
+                            },
+                            title = { Text(Loc.get("confirm_delete_title", lang), fontWeight = FontWeight.Bold) },
+                            text = { Text(Loc.get("confirm_delete_desc", lang)) },
+                            shape = RoundedCornerShape(20.dp)
+                        )
                     }
                 }
             }
@@ -603,7 +786,7 @@ fun SettingsScreen(
                 }
             },
             title = {
-                val isSuccess = verificationResult?.contains("successo", ignoreCase = true) == true
+                val isSuccess = verificationResult?.contains("successo", ignoreCase = true) == true || verificationResult?.contains("success", ignoreCase = true) == true
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -614,7 +797,7 @@ fun SettingsScreen(
                         tint = if (isSuccess) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
                     )
                     Text(
-                        text = if (isSuccess) "Esito Connessione" else "Errore di Connessione",
+                        text = if (isSuccess) Loc.get("conn_result_title", lang) else Loc.get("conn_error_title", lang),
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                     )
                 }

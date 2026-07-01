@@ -7,9 +7,17 @@ import com.example.domain.repository.FlashcardRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 class StatsViewModel(private val repository: FlashcardRepository) : ViewModel() {
+    
+    val selectedLanguage: StateFlow<String> = repository.selectedLanguageFlow.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.Lazily,
+        initialValue = "en"
+    )
     
     private val _stats = MutableStateFlow<Map<String, Any>>(emptyMap())
     val stats: StateFlow<Map<String, Any>> = _stats.asStateFlow()

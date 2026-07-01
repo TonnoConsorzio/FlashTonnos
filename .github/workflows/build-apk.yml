@@ -24,7 +24,11 @@ jobs:
           cache: 'gradle'
 
       - name: Grant Execute Permission to Gradlew
-        run: chmod +x gradlew
+        run: |
+          if [ ! -f gradlew ]; then
+            gradle wrapper
+          fi
+          chmod +x gradlew
 
       - name: Build Debug APK
         run: ./gradlew assembleDebug --no-daemon

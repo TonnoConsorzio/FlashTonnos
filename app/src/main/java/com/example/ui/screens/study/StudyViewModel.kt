@@ -29,6 +29,7 @@ class StudyViewModel(private val repository: FlashcardRepository) : ViewModel() 
 
     fun selectTopic(topic: String?) {
         _selectedTopic.value = topic
+        loadStudyQueue()
     }
 
     private val _currentCardIndex = MutableStateFlow(0)
@@ -47,53 +48,135 @@ class StudyViewModel(private val repository: FlashcardRepository) : ViewModel() 
     val syncResult: StateFlow<String?> = _syncResult.asStateFlow()
 
     val demoInitializedFlow = repository.demoInitializedFlow
+    val selectedLanguage: StateFlow<String> = repository.selectedLanguageFlow.stateIn(viewModelScope, SharingStarted.Lazily, "en")
+
+    val isStudying: StateFlow<Boolean> = repository.isStudying
+
+    fun setStudying(studying: Boolean) {
+        repository.setStudying(studying)
+    }
 
     fun clearSyncResult() {
         _syncResult.value = null
     }
 
+    private fun translateStatus(status: String, lang: String): String {
+        if (lang == "it") return status
+        
+        return when {
+            status.startsWith("Verifica connessione") -> "Verifying connection to GitHub repository..."
+            status.startsWith("Lettura cartella") -> {
+                val folder = status.substringAfter("'").substringBefore("'")
+                "Reading folder '$folder' on GitHub..."
+            }
+            status.contains("non esiste ancora") -> {
+                val folder = status.substringAfter("'").substringBefore("'")
+                "The folder '$folder' does not exist yet on GitHub. It will be created when you generate new cards."
+            }
+            status.contains("Nessuna flashcard trovata") -> {
+                val folder = status.substringAfter("'").substringBefore("'")
+                "No flashcards found on GitHub in folder '$folder'."
+            }
+            status.startsWith("Rilevate") -> {
+                val count = status.substringAfter("Rilevate ").substringBefore(" card")
+                "Detected $count cards on GitHub. Syncing..."
+            }
+            status.startsWith("Scaricamento card") -> {
+                val progress = status.substringAfter("(").substringBefore(")")
+                val name = status.substringAfter("): ")
+                "Downloading card ($progress): $name"
+            }
+            status.contains("Database locale sincronizzato") -> {
+                val count = status.substringAfter("sincronizzato! ").substringBefore(" flashcard")
+                "Local database synced! $count flashcards loaded."
+            }
+            else -> status
+        }
+    }
+
     fun syncDeck() {
+        val lang = selectedLanguage.value
         _isSyncing.value = true
         _syncResult.value = null
-        _syncStatus.value = "Connessione a GitHub..."
+        _syncStatus.value = if (lang == "it") "Connessione a GitHub..." else "Connecting to GitHub..."
         viewModelScope.launch {
             try {
                 val count = repository.syncFlashcardsFromGithub { status ->
-                    _syncStatus.value = status
+                    _syncStatus.value = translateStatus(status, lang)
                 }
-                _syncResult.value = "✓ Sincronizzazione completata! $count card importate dal tuo repository."
+                _syncResult.value = if (lang == "it") {
+                    "✓ Sincronizzazione completata! $count card importate dal tuo repository."
+                } else {
+                    "✓ Sync completed! $count cards imported from your repository."
+                }
+                loadStudyQueue()
             } catch (e: Exception) {
-                _syncResult.value = "Errore: ${e.localizedMessage ?: "Errore generico"}"
+                val errMsg = e.localizedMessage ?: "Errore generico"
+                _syncResult.value = if (lang == "it") {
+                    "Errore: $errMsg"
+                } else {
+                    val englishError = errMsg
+                        .replace("Credenziali incomplete! Configura GitHub prima di sincronizzare.", "Incomplete credentials! Configure GitHub before syncing.")
+                        .replace("Repository o Branch non trovati", "Repository or Branch not found")
+                        .replace("Errore di rete o connessione", "Network or connection error")
+                    "Error: $englishError"
+                }
             } finally {
                 _isSyncing.value = false
             }
         }
     }
 
-    init {
+    fun loadStudyQueue() {
         viewModelScope.launch {
-            combine(_rawStudyQueue, _selectedTopic) { cards, topic ->
-                if (topic == null) cards else cards.filter { it.topics.contains(topic) }
-            }.collect { filteredCards ->
-                _studyQueue.value = filteredCards
-                if (_currentCardIndex.value >= filteredCards.size) {
-                    _currentCardIndex.value = 0
-                }
+            val rawCards = repository.getStudyQueueSnapshot()
+            val topic = _selectedTopic.value
+            val filtered = if (topic == null) {
+                rawCards
+            } else {
+                rawCards.filter { it.topic == topic || it.topics.contains(topic) }
+            }
+            _studyQueue.value = filtered
+            if (_currentCardIndex.value >= filtered.size) {
+                _currentCardIndex.value = 0
             }
         }
+    }
+
+    init {
+        // Collect raw study queue for calculating available topics list dynamically
         viewModelScope.launch {
             repository.getStudyQueue().collect { cards ->
                 _rawStudyQueue.value = cards
+                // If local memory study queue is empty, load it once initially
+                if (_studyQueue.value.isEmpty()) {
+                    loadStudyQueue()
+                }
             }
         }
     }
 
     fun submitAnswer(card: Flashcard, selectedOption: String) {
-        val isCorrect = (selectedOption == card.correct_answer)
+        val isCorrect = if (card.type == "true_false") {
+            val selVero = selectedOption == "Vero" || selectedOption == "True" || selectedOption == "V" || selectedOption == "T"
+            val corrVero = card.correct_answer == "Vero" || card.correct_answer == "True" || card.correct_answer == "V" || card.correct_answer == "T"
+            selVero == corrVero
+        } else {
+            selectedOption == card.correct_answer
+        }
         val updatedCard = card.copy(
             times_shown = card.times_shown + 1,
             times_correct = card.times_correct + if (isCorrect) 1 else 0
         )
+        
+        // Update in memory list immediately so current card does not shift or reorder during review
+        val currentQueue = _studyQueue.value.toMutableList()
+        val index = currentQueue.indexOfFirst { it.id == card.id }
+        if (index != -1) {
+            currentQueue[index] = updatedCard
+            _studyQueue.value = currentQueue
+        }
+        
         _isFlipped.value = true
         
         repository.recordAnswer(isCorrect)
@@ -168,6 +251,7 @@ class StudyViewModel(private val repository: FlashcardRepository) : ViewModel() 
     fun initializeDemoDeck() {
         viewModelScope.launch {
             repository.initializeDemoDeck()
+            loadStudyQueue()
         }
     }
 

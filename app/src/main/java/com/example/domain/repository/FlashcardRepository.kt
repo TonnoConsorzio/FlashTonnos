@@ -7,20 +7,32 @@ import com.example.data.ai.OpenRouterService
 import com.example.data.github.GithubApiService
 import com.example.data.github.GithubPutRequest
 import com.example.data.local.CardDao
+import com.example.data.local.DeepDiveDao
 import com.example.data.local.FlashcardMapper
 import com.example.data.preferences.AppPreferences
 import com.example.domain.models.Flashcard
+import com.example.domain.models.DeepDiveCard
+import com.example.domain.models.DeepDiveInteraction
+import com.example.data.local.DeepDiveMapper
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class FlashcardRepository(
     private val githubApi: GithubApiService,
     private val openRouterApi: OpenRouterService,
     private val cardDao: CardDao,
+    private val deepDiveDao: DeepDiveDao,
     private val appPreferences: AppPreferences,
     private val context: android.content.Context
 ) {
@@ -31,11 +43,214 @@ class FlashcardRepository(
     private val generatedListType = Types.newParameterizedType(List::class.java, GeneratedFlashcard::class.java)
     private val generatedListAdapter = moshi.adapter<List<GeneratedFlashcard>>(generatedListType)
 
+    private val _isGenerating = MutableStateFlow(false)
+    val isGenerating: StateFlow<Boolean> = _isGenerating.asStateFlow()
+
+    private val _generationProgress = MutableStateFlow("")
+    val generationProgress: StateFlow<String> = _generationProgress.asStateFlow()
+
+    private val _generationResult = MutableStateFlow<String?>(null)
+    val generationResult: StateFlow<String?> = _generationResult.asStateFlow()
+
+    val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    init {
+        repositoryScope.launch {
+            kotlinx.coroutines.delay(2000)
+            val autoEnabled = appPreferences.autoGenerateEnabledFlow.first()
+            if (autoEnabled) {
+                runAutoGeneration()
+            }
+        }
+    }
+
+    suspend fun getAllTrackedFiles(): List<com.example.data.local.entities.TrackedFileEntity> {
+        return deepDiveDao.getAllTrackedFiles()
+    }
+
+    suspend fun runAutoGeneration() {
+        if (_isGenerating.value) return
+        _isGenerating.value = true
+        _generationProgress.value = "Rilevamento file..."
+        
+        try {
+            val detectUseCase = com.example.domain.usecases.DetectChangedFilesUseCase(
+                githubApi = githubApi,
+                deepDiveDao = deepDiveDao,
+                appPreferences = appPreferences
+            )
+            
+            val generateUseCase = com.example.domain.usecases.AutoGenerationUseCase(
+                githubApi = githubApi,
+                openRouterApi = openRouterApi,
+                deepDiveDao = deepDiveDao,
+                repository = this,
+                appPreferences = appPreferences,
+                context = context
+            )
+            
+            val filesToProcess = detectUseCase.execute()
+            if (filesToProcess.isEmpty()) {
+                _generationProgress.value = "Tutti i file sono aggiornati!"
+                kotlinx.coroutines.delay(2000)
+                _generationProgress.value = "Idle"
+            } else {
+                _generationProgress.value = "Trovati ${filesToProcess.size} file da elaborare..."
+                generateUseCase.execute(filesToProcess) { progress ->
+                    _generationProgress.value = progress
+                }
+                _generationProgress.value = "Generazione completata!"
+                kotlinx.coroutines.delay(3000)
+                _generationProgress.value = "Aggiornato"
+            }
+        } catch (e: Exception) {
+            _generationProgress.value = "Errore: ${e.localizedMessage}"
+            e.printStackTrace()
+        } finally {
+            _isGenerating.value = false
+        }
+    }
+
+    private val _isStudying = MutableStateFlow(false)
+    val isStudying: StateFlow<Boolean> = _isStudying.asStateFlow()
+
+    fun setStudying(studying: Boolean) {
+        _isStudying.value = studying
+    }
+
+    fun setGenerationResult(result: String?) {
+        _generationResult.value = result
+    }
+
+    fun setGenerationProgress(progress: String) {
+        _generationProgress.value = progress
+    }
+
+    fun startGeneratingCards(sourceFile: String, amount: Int, type: String) {
+        _isGenerating.value = true
+        _generationResult.value = null
+        repositoryScope.launch {
+            val lang = appPreferences.selectedLanguageFlow.first()
+            _generationProgress.value = if (lang == "it") "Avvio generazione dal file: $sourceFile..." else "Starting generation from file: $sourceFile..."
+            try {
+                val generatedCount = generateCards(sourceFile, amount, type) { status ->
+                    _generationProgress.value = status
+                }
+                _generationResult.value = if (lang == "it") {
+                    "✓ $generatedCount nuove card generate correttamente dal file: $sourceFile"
+                } else {
+                    "✓ $generatedCount new cards successfully generated from file: $sourceFile"
+                }
+            } catch (e: Exception) {
+                _generationResult.value = if (lang == "it") {
+                    "Errore: ${e.localizedMessage ?: "Errore generico"}"
+                } else {
+                    "Error: ${e.localizedMessage ?: "Generic error"}"
+                }
+            } finally {
+                _isGenerating.value = false
+            }
+        }
+    }
+
+    fun startGeneratingAllCardsMassively(type: String) {
+        _isGenerating.value = true
+        _generationResult.value = null
+        repositoryScope.launch {
+            val lang = appPreferences.selectedLanguageFlow.first()
+            _generationProgress.value = if (lang == "it") "Scansione dei file .md nelle cartelle configurate..." else "Scanning .md files in configured folders..."
+            try {
+                val files = fetchMarkdownFilesFromConfiguredFolders()
+                if (files.isEmpty()) {
+                    _generationResult.value = if (lang == "it") {
+                        "Nessun file .md trovato nelle cartelle configurate. Controlla le impostazioni."
+                    } else {
+                        "No .md files found in configured folders. Please check your settings."
+                    }
+                    _isGenerating.value = false
+                    return@launch
+                }
+                
+                _generationProgress.value = if (lang == "it") {
+                    "Trovati ${files.size} file .md. Avvio generazione di 5 flashcard per ciascuno..."
+                } else {
+                    "Found ${files.size} .md files. Starting generation of 5 flashcards for each..."
+                }
+                var totalGenerated = 0
+                for ((index, file) in files.withIndex()) {
+                    _generationProgress.value = if (lang == "it") {
+                        "[File ${index + 1}/${files.size}] Elaborazione di: $file..."
+                    } else {
+                        "[File ${index + 1}/${files.size}] Processing: $file..."
+                    }
+                    try {
+                        val count = generateCards(sourceFile = file, amount = 5, type = type) { status ->
+                            _generationProgress.value = if (lang == "it") {
+                                "[File ${index + 1}/${files.size}] $file:\n$status"
+                            } else {
+                                "[File ${index + 1}/${files.size}] $file:\n$status"
+                            }
+                        }
+                        totalGenerated += count
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+                _generationResult.value = if (lang == "it") {
+                    "✓ Generazione massiva completata! Generate $totalGenerated nuove flashcard da ${files.size} file Markdown."
+                } else {
+                    "✓ Massive generation completed! Generated $totalGenerated new flashcards from ${files.size} Markdown files."
+                }
+            } catch (e: Exception) {
+                _generationResult.value = if (lang == "it") {
+                    "Errore durante la generazione massiva: ${e.localizedMessage ?: "Errore generico"}"
+                } else {
+                    "Error during massive generation: ${e.localizedMessage ?: "Generic error"}"
+                }
+            } finally {
+                _isGenerating.value = false
+            }
+        }
+    }
+
     fun getStudyQueue(): Flow<List<Flashcard>> = cardDao.getStudyQueue().map { list ->
         list.map { FlashcardMapper.toDomain(it) }
     }
 
+    suspend fun getStudyQueueSnapshot(): List<Flashcard> {
+        val list = cardDao.getStudyQueue().first()
+        return list.map { FlashcardMapper.toDomain(it) }
+    }
+
+    suspend fun getAllDeepDiveCardsSnapshot(): List<DeepDiveCard> {
+        val list = deepDiveDao.getAllCards().first()
+        return list.map { DeepDiveMapper.toDomain(it) }
+    }
+
+    suspend fun getAllDeepDiveInteractions(): List<DeepDiveInteraction> {
+        val list = deepDiveDao.getAllInteractions()
+        return list.map { DeepDiveMapper.toDomain(it) }
+    }
+
+    fun getAllDeepDiveCardsFlow(): Flow<List<DeepDiveCard>> {
+        return deepDiveDao.getAllCards().map { list ->
+            list.map { DeepDiveMapper.toDomain(it) }
+        }
+    }
+
+    fun getAllFlashcardsFlow(): Flow<List<com.example.domain.models.Flashcard>> {
+        return cardDao.getAllCards().map { list ->
+            list.map { FlashcardMapper.toDomain(it) }
+        }
+    }
+
+    suspend fun getDeepDiveBodyWordCount(cardId: String): Int {
+        val card = deepDiveDao.getCardById(cardId) ?: return 100
+        return card.body.split("\\s+".toRegex()).filter { it.isNotBlank() }.size
+    }
+
     val demoInitializedFlow: Flow<Boolean> = appPreferences.demoInitializedFlow
+    val selectedLanguageFlow: Flow<String> = appPreferences.selectedLanguageFlow
     
     suspend fun getStats(): Map<String, Any> {
         val allCards = cardDao.getAllCards().first()
@@ -56,6 +271,23 @@ class FlashcardRepository(
             }
         }
         
+        val interactions = deepDiveDao.getAllInteractions().map { DeepDiveMapper.toDomain(it) }
+        val totalDwellTimeSec = interactions.sumOf { it.dwellTimeMs } / 1000
+        val positiveCount = interactions.count { it.explicitFeedback == 1 }
+        val negativeCount = interactions.count { it.explicitFeedback == -1 }
+        
+        val topicDwellTimes = interactions.groupBy { it.topic }
+            .mapValues { group -> group.value.sumOf { it.dwellTimeMs } / 1000 }
+            .filter { it.key.isNotBlank() }
+
+        val tagDwellTimes = mutableMapOf<String, Long>()
+        interactions.forEach { interaction ->
+            val tagsList = interaction.tags.map { it.trim() }.filter { it.isNotBlank() }
+            tagsList.forEach { tag ->
+                tagDwellTimes[tag] = (tagDwellTimes[tag] ?: 0L) + (interaction.dwellTimeMs / 1000)
+            }
+        }
+
         val accuracy = if (totalAttempts > 0) (correct.toFloat() / totalAttempts * 100).toInt() else 0
         return mapOf(
             "total" to total,
@@ -68,7 +300,12 @@ class FlashcardRepository(
             "daily_streak" to appPreferences.getDailyStreak(),
             "max_daily_streak" to appPreferences.getMaxDailyStreak(),
             "current_correct_streak" to appPreferences.getCurrentCorrectStreak(),
-            "max_correct_streak" to appPreferences.getMaxCorrectStreak()
+            "max_correct_streak" to appPreferences.getMaxCorrectStreak(),
+            "dd_total_dwell_sec" to totalDwellTimeSec,
+            "dd_positive_count" to positiveCount,
+            "dd_negative_count" to negativeCount,
+            "dd_topic_dwell" to topicDwellTimes,
+            "dd_tag_dwell" to tagDwellTimes
         )
     }
 
@@ -78,8 +315,17 @@ class FlashcardRepository(
         saveStatsToGithub()
     }
 
+    suspend fun insertAllCards(cards: List<Flashcard>) {
+        cardDao.insertAll(cards.map { FlashcardMapper.toEntity(it) })
+    }
+
     fun recordAnswer(isCorrect: Boolean) {
         appPreferences.recordAnswer(isCorrect)
+    }
+
+    private suspend fun getCardsFolder(): String {
+        val folder = appPreferences.githubCardsFolderFlow.first().trim()
+        return if (folder.isEmpty()) "flashcards" else folder.trim('/')
     }
 
     suspend fun saveStatsToGithub() {
@@ -90,7 +336,8 @@ class FlashcardRepository(
             val token = "Bearer ${appPreferences.getGithubPat()}"
             if (owner.isBlank() || repo.isBlank() || token.isBlank()) return
             
-            val path = "flashcards/statistics.json"
+            val cardsFolder = getCardsFolder()
+            val path = "$cardsFolder/statistics.json"
             
             // Check if exists
             val existingSha = try {
@@ -135,7 +382,8 @@ class FlashcardRepository(
             val repo = appPreferences.githubRepoFlow.first()
             val branch = appPreferences.githubBranchFlow.first()
             val token = "Bearer ${appPreferences.getGithubPat()}"
-            val path = "flashcards/${card.id}.json"
+            val cardsFolder = getCardsFolder()
+            val path = "$cardsFolder/${card.id}.json"
             
             // Check if exists
             val existingSha = try {
@@ -175,12 +423,13 @@ class FlashcardRepository(
                 githubApi.getDirectoryContents(token, owner, repo, folder, branch)
             }
             val filesList = mutableListOf<String>()
+            val cardsFolder = getCardsFolder()
             for (item in contents) {
                 if (item.type == "file" && item.name.endsWith(".md", ignoreCase = true)) {
                     filesList.add(item.path)
                 } else if (item.type == "dir") {
                     // Skip system folder of flashcards if scanning from root
-                    if (folder.isBlank() && item.name.equals("flashcards", ignoreCase = true)) {
+                    if (folder.isBlank() && item.name.equals(cardsFolder, ignoreCase = true)) {
                         continue
                     }
                     val subFiles = fetchMarkdownFilesRecursive(token, owner, repo, item.path, branch)
@@ -238,14 +487,56 @@ class FlashcardRepository(
         type: String,
         onProgress: (String) -> Unit = {}
     ): Int {
+        val maxBatchSize = 15
+        if (amount > maxBatchSize) {
+            var totalGenerated = 0
+            val batches = (amount + maxBatchSize - 1) / maxBatchSize
+            for (batchIdx in 0 until batches) {
+                val batchAmount = if (batchIdx == batches - 1) {
+                    amount - (batchIdx * maxBatchSize)
+                } else {
+                    maxBatchSize
+                }
+                onProgress("Avvio batch ${batchIdx + 1}/$batches (generando $batchAmount card)...")
+                val batchResult = generateCardsSingleBatch(
+                    sourceFile = sourceFile,
+                    amount = batchAmount,
+                    type = type,
+                    batchIndex = batchIdx + 1,
+                    totalBatches = batches,
+                    onProgress = onProgress
+                )
+                totalGenerated += batchResult
+            }
+            return totalGenerated
+        } else {
+            return generateCardsSingleBatch(
+                sourceFile = sourceFile,
+                amount = amount,
+                type = type,
+                batchIndex = 1,
+                totalBatches = 1,
+                onProgress = onProgress
+            )
+        }
+    }
+
+    private suspend fun generateCardsSingleBatch(
+        sourceFile: String,
+        amount: Int,
+        type: String,
+        batchIndex: Int,
+        totalBatches: Int,
+        onProgress: (String) -> Unit = {}
+    ): Int {
         try {
-            onProgress("Recupero configurazioni...")
+            onProgress("[$batchIndex/$totalBatches] Recupero configurazioni...")
             val owner = appPreferences.githubOwnerFlow.first()
             val repo = appPreferences.githubRepoFlow.first()
             val branch = appPreferences.githubBranchFlow.first()
             val token = "Bearer ${appPreferences.getGithubPat()}"
             
-            onProgress("Lettura file sorgente: $sourceFile...")
+            onProgress("[$batchIndex/$totalBatches] Lettura file sorgente: $sourceFile...")
             val fileContentResponse = githubApi.getContent(token, owner, repo, sourceFile, branch)
             val base64Content = fileContentResponse.content?.replace("\n", "") ?: return 0
             val markdownText = String(Base64.decode(base64Content, Base64.DEFAULT))
@@ -258,6 +549,23 @@ class FlashcardRepository(
             }
 
             val studyMode = appPreferences.studyModeFlow.first()
+            val lang = appPreferences.selectedLanguageFlow.first()
+
+            val langInstruction = if (lang == "it") {
+                """
+                L'utente ha selezionato la lingua ITALIANA.
+                Sia la domanda, sia tutte le opzioni di risposta, sia la risposta corretta, sia la spiegazione, sia i tag/topics DEVONO essere scritti rigorosamente in lingua ITALIANA.
+                Non mischiare inglese e italiano nelle risposte o spiegazioni.
+                Per le card di tipo "true_false", le opzioni in "options" devono essere esattamente ["Vero", "Falso"] e il "correct_answer" deve essere esattamente uno di questi due valori.
+                """.trimIndent()
+            } else {
+                """
+                The user has selected the ENGLISH language.
+                The question, all answer options, the correct answer, the explanation, and the tag/topics MUST be generated strictly in ENGLISH.
+                Do not output Italian answers or explanations.
+                For "true_false" type cards, the "options" array must contain exactly ["True", "False"] and the "correct_answer" must be exactly one of these two values.
+                """.trimIndent()
+            }
 
             val prompt = """
                 SYSTEM INSTRUCTIONS:
@@ -267,13 +575,22 @@ class FlashcardRepository(
                 Current Study Mode Requested: $studyMode (classic, questions, or curiosities)
                 Please read the markdown text below and generate $amount items of type "$type" matching this study mode.
                 
+                CRITICAL INSTRUCTIONS FOR QUALITY AND LOCALIZATION:
+                $langInstruction
+
+                1. OPTIONS LENGTH: Every string in the "options" array MUST be extremely short, clear, and concise (maximum 5-8 words). DO NOT write long paragraphs or complex sentences in the options.
+                2. CORRECT ANSWER MATCH: The "correct_answer" string MUST match EXACTLY (character-for-character, including casing and spelling) one of the strings inside the "options" array.
+                3. QUESTIONS CLARITY: Questions must be logical, grammatically flawless, direct, and unambiguous in the requested language. No misleading or convoluted phrasing.
+                4. TOPICS SPECIFICATION: The "topics" array must contain 1 to 3 short conceptual single-word tags describing the subject matter (e.g., ["Sistemista"], ["AI"], ["Database"], ["Reti"], ["Programmazione"], ["Inglese"]). DO NOT put folder paths, filenames, or file extensions (like "Appunti", ".md", etc.) in the topics.
+                5. FOR "true_false" TYPE: The "options" array must contain exactly two values: ${if (lang == "it") "[\"Vero\", \"Falso\"]" else "[\"True\", \"False\"]"}. The "correct_answer" MUST be exactly one of those.
+
                 SOURCE TEXT:
                 $markdownText
 
                 Remember: Reply with a raw JSON array matching the instructions in the system prompt. No markdown wrapper blocks.
             """.trimIndent()
 
-            onProgress("Chiamata ad OpenRouter via ${appPreferences.openRouterModelFlow.first()}...")
+            onProgress("[$batchIndex/$totalBatches] Chiamata ad OpenRouter via ${appPreferences.openRouterModelFlow.first()}...")
             val openRouterToken = "Bearer ${appPreferences.getOpenRouterKey()}"
             val model = appPreferences.openRouterModelFlow.first()
             
@@ -303,41 +620,90 @@ class FlashcardRepository(
             }
             cleanedJson = cleanedJson.trim()
 
-            onProgress("Parsing delle card generate...")
+            onProgress("[$batchIndex/$totalBatches] Parsing delle card generate...")
             val parsedGenerated = generatedListAdapter.fromJson(cleanedJson) ?: emptyList()
             
             val finalCards = parsedGenerated.map { gen ->
+                // Clean and sanitize options and correct_answer to prevent key mismatches
+                val cleanType = if (gen.type == "true_false") "true_false" else "multiple_choice"
+                var cleanOptions = gen.options.map { it.trim() }.filter { it.isNotEmpty() }
+                var cleanCorrectAnswer = gen.correct_answer.trim()
+
+                if (cleanType == "true_false") {
+                    cleanOptions = if (lang == "it") listOf("Vero", "Falso") else listOf("True", "False")
+                    val isVero = cleanCorrectAnswer.equals("vero", ignoreCase = true) || 
+                                 cleanCorrectAnswer.equals("true", ignoreCase = true) || 
+                                 cleanCorrectAnswer.equals("v", ignoreCase = true) ||
+                                 cleanCorrectAnswer.equals("t", ignoreCase = true)
+                    cleanCorrectAnswer = if (isVero) cleanOptions[0] else cleanOptions[1]
+                } else {
+                    if (cleanOptions.size < 2) {
+                        cleanOptions = listOf(cleanCorrectAnswer, "Opzione 2", "Opzione 3", "Opzione 4")
+                    }
+                    val matchIndex = cleanOptions.indexOfFirst { it.equals(cleanCorrectAnswer, ignoreCase = true) }
+                    if (matchIndex != -1) {
+                        cleanCorrectAnswer = cleanOptions[matchIndex]
+                    } else {
+                        // Correct answer was missing from options list! Insert it at index 0
+                        val mutableOptions = cleanOptions.toMutableList()
+                        if (mutableOptions.isNotEmpty()) {
+                            mutableOptions[0] = cleanCorrectAnswer
+                        } else {
+                            mutableOptions.add(cleanCorrectAnswer)
+                        }
+                        cleanOptions = mutableOptions.shuffled()
+                    }
+                }
+
+                // Map topic and subtopic, falling back to sourceFile name if empty
+                val finalTopic = gen.topic?.trim()?.takeIf { it.isNotEmpty() } ?: run {
+                    var fallback = sourceFile
+                    if (fallback.contains("/")) {
+                        fallback = fallback.substringAfterLast("/")
+                    }
+                    if (fallback.endsWith(".md", ignoreCase = true)) {
+                        fallback = fallback.substring(0, fallback.length - 3)
+                    }
+                    fallback.trim()
+                }
+
+                val finalSubtopic = gen.subtopic?.trim()?.takeIf { it.isNotEmpty() } ?: "Generale"
+
+                val finalTopics = listOf(finalTopic, finalSubtopic)
+
                 Flashcard(
-                    type = gen.type,
-                    question = gen.question,
-                    correct_answer = gen.correct_answer,
-                    options = gen.options,
-                    explanation = gen.explanation,
+                    type = cleanType,
+                    question = gen.question.trim(),
+                    correct_answer = cleanCorrectAnswer,
+                    options = cleanOptions,
+                    explanation = gen.explanation.trim(),
                     source_file = sourceFile,
-                    source_excerpt = gen.source_excerpt,
+                    source_excerpt = gen.source_excerpt.trim(),
                     difficulty = gen.difficulty,
-                    topics = gen.topics,
-                    source_flag = gen.source_flag
+                    topics = finalTopics,
+                    source_flag = gen.source_flag,
+                    topic = finalTopic,
+                    subtopic = finalSubtopic
                 )
             }
 
-            onProgress("Salvataggio nel database locale...")
+            onProgress("[$batchIndex/$totalBatches] Salvataggio nel database locale...")
             cardDao.insertAll(finalCards.map { FlashcardMapper.toEntity(it) })
             
             // Background save to github
             finalCards.forEachIndexed { index, card ->
-                onProgress("Caricamento su GitHub di ${card.id}.json (${index + 1}/${finalCards.size})...")
+                onProgress("[$batchIndex/$totalBatches] Caricamento su GitHub di ${card.id}.json (${index + 1}/${finalCards.size})...")
                 saveCardToGithub(card)
             }
 
-            onProgress("Aggiornamento statistiche su GitHub...")
+            onProgress("[$batchIndex/$totalBatches] Aggiornamento statistiche su GitHub...")
             saveStatsToGithub()
 
-            onProgress("Sincronizzazione completata! ${finalCards.size} nuove card generate e caricate su GitHub.")
+            onProgress("[$batchIndex/$totalBatches] Sincronizzazione completata! ${finalCards.size} nuove card generate e caricate su GitHub.")
             return finalCards.size
         } catch (e: Exception) {
             e.printStackTrace()
-            onProgress("Errore durante la generazione: ${e.localizedMessage}")
+            onProgress("[$batchIndex/$totalBatches] Errore durante la generazione: ${e.localizedMessage}")
             return 0
         }
     }
@@ -384,17 +750,18 @@ class FlashcardRepository(
             throw IllegalArgumentException(connectionError)
         }
         
-        onProgress("Lettura cartella 'flashcards/' su GitHub...")
+        val cardsFolder = getCardsFolder()
+        onProgress("Lettura cartella '$cardsFolder/' su GitHub...")
         val contents = try {
-            githubApi.getDirectoryContents(token, owner, repo, "flashcards", branch)
+            githubApi.getDirectoryContents(token, owner, repo, cardsFolder, branch)
         } catch (e: Exception) {
-            onProgress("La cartella 'flashcards' non esiste ancora su GitHub. Sarà creata quando generi delle nuove card.")
+            onProgress("La cartella '$cardsFolder' non esiste ancora su GitHub. Sarà creata quando generi delle nuove card.")
             return 0
         }
         
         val jsonFiles = contents.filter { it.type == "file" && it.name.endsWith(".json", ignoreCase = true) }
         if (jsonFiles.isEmpty()) {
-            onProgress("Nessuna flashcard trovata su GitHub nella cartella 'flashcards/'.")
+            onProgress("Nessuna flashcard trovata su GitHub nella cartella '$cardsFolder/'.")
             return 0
         }
         
@@ -559,5 +926,7 @@ data class GeneratedFlashcard(
     val source_excerpt: String = "",
     val difficulty: String = "medium",
     val topics: List<String> = emptyList(),
+    val topic: String? = null,
+    val subtopic: String? = null,
     val source_flag: String? = null
 )

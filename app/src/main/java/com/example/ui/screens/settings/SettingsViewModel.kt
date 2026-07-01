@@ -18,11 +18,13 @@ class SettingsViewModel(
     val githubOwner: StateFlow<String> = preferences.githubOwnerFlow.stateIn(viewModelScope, SharingStarted.Lazily, "")
     val githubRepo: StateFlow<String> = preferences.githubRepoFlow.stateIn(viewModelScope, SharingStarted.Lazily, "")
     val githubBranch: StateFlow<String> = preferences.githubBranchFlow.stateIn(viewModelScope, SharingStarted.Lazily, "main")
+    val githubCardsFolder: StateFlow<String> = preferences.githubCardsFolderFlow.stateIn(viewModelScope, SharingStarted.Lazily, "flashcards")
     val openRouterModel: StateFlow<String> = preferences.openRouterModelFlow.stateIn(viewModelScope, SharingStarted.Lazily, "openrouter/auto")
     val selectedTheme: StateFlow<Int> = preferences.selectedThemeFlow.stateIn(viewModelScope, SharingStarted.Lazily, 0)
     val studyMode: StateFlow<String> = preferences.studyModeFlow.stateIn(viewModelScope, SharingStarted.Lazily, "classic")
     val sourceFolders: StateFlow<Set<String>> = preferences.sourceFoldersFlow.stateIn(viewModelScope, SharingStarted.Lazily, setOf("Appunti"))
     val dailyReminder: StateFlow<Boolean> = preferences.dailyReminderFlow.stateIn(viewModelScope, SharingStarted.Lazily, false)
+    val selectedLanguage: StateFlow<String> = preferences.selectedLanguageFlow.stateIn(viewModelScope, SharingStarted.Lazily, "en")
     
     private val _isVerifying = kotlinx.coroutines.flow.MutableStateFlow(false)
     val isVerifying: StateFlow<Boolean> = _isVerifying
@@ -59,6 +61,9 @@ class SettingsViewModel(
     fun updateGithubBranch(branch: String) {
         viewModelScope.launch { preferences.updateGithubBranch(branch) }
     }
+    fun updateGithubCardsFolder(folder: String) {
+        viewModelScope.launch { preferences.updateGithubCardsFolder(folder) }
+    }
     fun updateOpenRouterModel(model: String) {
         viewModelScope.launch { preferences.updateOpenRouterModel(model) }
     }
@@ -70,6 +75,9 @@ class SettingsViewModel(
     }
     fun updateSourceFolders(folders: Set<String>) {
         viewModelScope.launch { preferences.updateSourceFolders(folders) }
+    }
+    fun updateSelectedLanguage(language: String) {
+        viewModelScope.launch { preferences.updateSelectedLanguage(language) }
     }
 
     fun updateDailyReminder(enabled: Boolean, context: android.content.Context) {

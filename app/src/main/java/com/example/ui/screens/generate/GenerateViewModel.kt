@@ -7,21 +7,58 @@ import com.example.domain.repository.FlashcardRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+
+data class TrackedFileStats(
+    val path: String,
+    val lastSha: String,
+    val lastIndexedAt: Long,
+    val flashcardCount: Int,
+    val deepDiveCount: Int
+)
 
 class GenerateViewModel(private val repository: FlashcardRepository) : ViewModel() {
     
-    private val _isGenerating = MutableStateFlow(false)
-    val isGenerating: StateFlow<Boolean> = _isGenerating.asStateFlow()
+    val selectedLanguage: StateFlow<String> = repository.selectedLanguageFlow.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.Lazily,
+        initialValue = "en"
+    )
     
-    private val _generationResult = MutableStateFlow<String?>(null)
-    val generationResult: StateFlow<String?> = _generationResult.asStateFlow()
-
-    private val _liveProgress = MutableStateFlow("")
-    val liveProgress: StateFlow<String> = _liveProgress.asStateFlow()
+    val isGenerating: StateFlow<Boolean> = repository.isGenerating
+    val generationResult: StateFlow<String?> = repository.generationResult
+    val liveProgress: StateFlow<String> = repository.generationProgress
 
     private val _markdownFiles = MutableStateFlow<List<String>>(emptyList())
     val markdownFiles: StateFlow<List<String>> = _markdownFiles.asStateFlow()
+
+    private val _trackedFiles = MutableStateFlow<List<com.example.data.local.entities.TrackedFileEntity>>(emptyList())
+    val trackedFiles: StateFlow<List<com.example.data.local.entities.TrackedFileEntity>> = _trackedFiles.asStateFlow()
+
+    val trackedFileStats: StateFlow<List<TrackedFileStats>> = combine(
+        _trackedFiles,
+        repository.getAllFlashcardsFlow(),
+        repository.getAllDeepDiveCardsFlow()
+    ) { files, flashcards, deepDives ->
+        files.map { file ->
+            val fcCount = flashcards.count { it.source_file == file.path }
+            val ddCount = deepDives.count { it.source_file == file.path }
+            TrackedFileStats(
+                path = file.path,
+                lastSha = file.lastSha,
+                lastIndexedAt = file.lastIndexedAt,
+                flashcardCount = fcCount,
+                deepDiveCount = ddCount
+            )
+        }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
 
     private val _selectedFile = MutableStateFlow<String?>(null)
     val selectedFile: StateFlow<String?> = _selectedFile.asStateFlow()
@@ -31,6 +68,24 @@ class GenerateViewModel(private val repository: FlashcardRepository) : ViewModel
 
     init {
         scanRepository()
+        loadTrackedFiles()
+    }
+
+    fun loadTrackedFiles() {
+        viewModelScope.launch {
+            try {
+                _trackedFiles.value = repository.getAllTrackedFiles()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun triggerAutoGeneration() {
+        viewModelScope.launch {
+            repository.runAutoGeneration()
+            loadTrackedFiles()
+        }
     }
 
     fun selectFile(file: String?) {
@@ -39,8 +94,8 @@ class GenerateViewModel(private val repository: FlashcardRepository) : ViewModel
 
     fun scanRepository() {
         _isScanning.value = true
-        _generationResult.value = null
-        _liveProgress.value = "Ricerca file .md nelle cartelle configurate..."
+        repository.setGenerationResult(null)
+        repository.setGenerationProgress("Ricerca file .md nelle cartelle configurate...")
         viewModelScope.launch {
             try {
                 val files = repository.fetchMarkdownFilesFromConfiguredFolders()
@@ -50,13 +105,13 @@ class GenerateViewModel(private val repository: FlashcardRepository) : ViewModel
                     if (_selectedFile.value == null || !files.contains(_selectedFile.value!!)) {
                         _selectedFile.value = files.first()
                     }
-                    _liveProgress.value = "Trovati ${files.size} file Markdown nel repository."
+                    repository.setGenerationProgress("Trovati ${files.size} file Markdown nel repository.")
                 } else {
                     _selectedFile.value = null
-                    _liveProgress.value = "Nessun file .md rilevato nelle cartelle configurate o nel repository."
+                    repository.setGenerationProgress("Nessun file .md rilevato nelle cartelle configurate o nel repository.")
                 }
             } catch (e: Exception) {
-                _liveProgress.value = "Errore durante la scansione: ${e.localizedMessage}"
+                repository.setGenerationProgress("Errore durante la scansione: ${e.localizedMessage}")
             } finally {
                 _isScanning.value = false
             }
@@ -66,60 +121,14 @@ class GenerateViewModel(private val repository: FlashcardRepository) : ViewModel
     fun generateCards(amount: Int, type: String) {
         val fileToUse = _selectedFile.value
         if (fileToUse == null) {
-            _generationResult.value = "Seleziona prima un file sorgente Markdown (.md) valido."
+            repository.setGenerationResult("Seleziona prima un file sorgente Markdown (.md) valido.")
             return
         }
-
-        _isGenerating.value = true
-        _generationResult.value = null
-        _liveProgress.value = "Avvio generazione dal file: $fileToUse..."
-        viewModelScope.launch {
-            try {
-                val generatedCount = repository.generateCards(fileToUse, amount, type) { status ->
-                    _liveProgress.value = status
-                }
-                _generationResult.value = "✓ $generatedCount nuove card generate correttamente dal file: $fileToUse"
-            } catch (e: Exception) {
-                _generationResult.value = "Errore: ${e.localizedMessage}"
-            } finally {
-                _isGenerating.value = false
-            }
-        }
+        repository.startGeneratingCards(fileToUse, amount, type)
     }
 
     fun generateAllCardsMassively(type: String) {
-        _isGenerating.value = true
-        _generationResult.value = null
-        _liveProgress.value = "Scansione dei file .md nelle cartelle configurate..."
-        viewModelScope.launch {
-            try {
-                val files = repository.fetchMarkdownFilesFromConfiguredFolders()
-                if (files.isEmpty()) {
-                    _generationResult.value = "Nessun file .md trovato nelle cartelle configurate. Controlla le impostazioni."
-                    _isGenerating.value = false
-                    return@launch
-                }
-                
-                _liveProgress.value = "Trovati ${files.size} file .md. Avvio generazione di 5 flashcard per ciascuno..."
-                var totalGenerated = 0
-                for ((index, file) in files.withIndex()) {
-                    _liveProgress.value = "[File ${index + 1}/${files.size}] Elaborazione di: $file..."
-                    try {
-                        val count = repository.generateCards(sourceFile = file, amount = 5, type = type) { status ->
-                            _liveProgress.value = "[File ${index + 1}/${files.size}] $file:\n$status"
-                        }
-                        totalGenerated += count
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-                }
-                _generationResult.value = "✓ Generazione massiva completata! Generate $totalGenerated nuove flashcard da ${files.size} file Markdown."
-            } catch (e: Exception) {
-                _generationResult.value = "Errore durante la generazione massiva: ${e.localizedMessage}"
-            } finally {
-                _isGenerating.value = false
-            }
-        }
+        repository.startGeneratingAllCardsMassively(type)
     }
 
     class Factory(private val repository: FlashcardRepository) : ViewModelProvider.Factory {

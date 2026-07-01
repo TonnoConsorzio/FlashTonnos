@@ -22,7 +22,31 @@ data class GithubPutRequest(
     val branch: String
 )
 
+data class GithubTreeEntry(
+    val path: String,
+    val mode: String,
+    val type: String, // "blob" or "tree"
+    val sha: String,
+    val size: Int? = null
+)
+
+data class GithubTreeResponse(
+    val sha: String,
+    val url: String,
+    val tree: List<GithubTreeEntry>,
+    val truncated: Boolean
+)
+
 interface GithubApiService {
+    @GET("repos/{owner}/{repo}/git/trees/{branch}")
+    suspend fun getTreeRecursive(
+        @Header("Authorization") token: String,
+        @Path("owner") owner: String,
+        @Path("repo") repo: String,
+        @Path("branch") branch: String,
+        @Query("recursive") recursive: Int = 1
+    ): GithubTreeResponse
+
     @GET("repos/{owner}/{repo}/contents/{path}")
     suspend fun getContent(
         @Header("Authorization") token: String,

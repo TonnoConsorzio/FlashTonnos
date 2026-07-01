@@ -5,8 +5,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -25,13 +23,11 @@ class MainActivity : ComponentActivity() {
             
             MyApplicationTheme(themeIndex = themeIndex) {
                 val navController = rememberNavController()
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    AppNavigation(
-                        navController = navController,
-                        appContainer = appContainer,
-                        modifier = Modifier.padding(innerPadding)
-                    )
-                }
+                AppNavigation(
+                    navController = navController,
+                    appContainer = appContainer,
+                    modifier = Modifier.fillMaxSize()
+                )
             }
         }
     }

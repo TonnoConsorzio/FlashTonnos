@@ -28,6 +28,7 @@ import com.example.ui.screens.generate.GenerateScreen
 import com.example.ui.screens.settings.SettingsScreen
 import com.example.ui.screens.stats.StatsScreen
 import com.example.ui.screens.study.StudyScreen
+import com.example.ui.screens.deepdive.DeepDiveScreen
 
 sealed class Screen(val route: String, val title: String, val icon: @Composable () -> Unit) {
     object Study : Screen("study", "Studia", { Icon(Icons.Default.Style, contentDescription = "Studia") })
@@ -58,5 +59,6 @@ fun AppNavigation(
         composable(Screen.Generate.route) { GenerateScreen(appContainer, navController = navController) }
         composable(Screen.Stats.route) { StatsScreen(appContainer, navController = navController) }
         composable(Screen.Settings.route) { SettingsScreen(appContainer, navController = navController) }
+        composable("deep_dive") { DeepDiveScreen(appContainer, navController = navController) }
     }
 }

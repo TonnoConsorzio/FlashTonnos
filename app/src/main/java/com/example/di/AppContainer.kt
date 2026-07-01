@@ -6,6 +6,7 @@ import com.example.data.ai.OpenRouterService
 import com.example.data.github.GithubApiService
 import com.example.data.local.AppDatabase
 import com.example.data.local.CardDao
+import com.example.data.local.DeepDiveDao
 import com.example.data.preferences.AppPreferences
 import com.example.domain.repository.FlashcardRepository
 import com.squareup.moshi.Moshi
@@ -26,6 +27,7 @@ class AppContainer(private val context: Context) {
     }
 
     val cardDao: CardDao by lazy { database.cardDao() }
+    val deepDiveDao: DeepDiveDao by lazy { database.deepDiveDao() }
 
     private val moshi: Moshi = Moshi.Builder()
         .add(KotlinJsonAdapterFactory())
@@ -37,6 +39,9 @@ class AppContainer(private val context: Context) {
 
     private val okHttpClient = OkHttpClient.Builder()
         .addInterceptor(loggingInterceptor)
+        .connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(180, java.util.concurrent.TimeUnit.SECONDS)
+        .writeTimeout(180, java.util.concurrent.TimeUnit.SECONDS)
         .build()
 
     val githubApiService: GithubApiService by lazy {
@@ -62,6 +67,7 @@ class AppContainer(private val context: Context) {
             githubApiService,
             openRouterService,
             cardDao,
+            deepDiveDao,
             appPreferences,
             context
         )
