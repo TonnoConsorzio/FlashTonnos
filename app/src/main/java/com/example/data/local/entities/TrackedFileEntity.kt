@@ -4,6 +4,7 @@ import androidx.room.Entity
 import androidx.room.PrimaryKey
 
 @Entity(tableName = "tracked_files")
+@com.squareup.moshi.JsonClass(generateAdapter = true)
 data class TrackedFileEntity(
     @PrimaryKey val path: String,
     val lastSha: String,

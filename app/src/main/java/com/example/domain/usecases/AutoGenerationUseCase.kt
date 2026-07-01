@@ -207,6 +207,9 @@ class AutoGenerationUseCase(
                         lastIndexedAt = System.currentTimeMillis()
                     )
                 )
+                
+                // Salva elenco file tracciati su GitHub
+                repository.saveTrackedFilesToGithub()
 
                 onProgress(
                     if (lang == "it") "✓ File ${file.path} completato e tracciato correttamente!"

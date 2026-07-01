@@ -40,6 +40,7 @@ class FlashcardRepository(
     private val listType = Types.newParameterizedType(List::class.java, Flashcard::class.java)
     private val listAdapter = moshi.adapter<List<Flashcard>>(listType)
     private val cardAdapter = moshi.adapter(Flashcard::class.java)
+    private val deepDiveCardAdapter = moshi.adapter(DeepDiveCard::class.java)
     private val generatedListType = Types.newParameterizedType(List::class.java, GeneratedFlashcard::class.java)
     private val generatedListAdapter = moshi.adapter<List<GeneratedFlashcard>>(generatedListType)
 
@@ -375,6 +376,43 @@ class FlashcardRepository(
             e.printStackTrace()
         }
     }
+
+    suspend fun saveTrackedFilesToGithub() {
+        try {
+            val owner = appPreferences.githubOwnerFlow.first()
+            val repo = appPreferences.githubRepoFlow.first()
+            val branch = appPreferences.githubBranchFlow.first()
+            val token = "Bearer ${appPreferences.getGithubPat()}"
+            if (owner.isBlank() || repo.isBlank() || token.isBlank()) return
+            
+            val cardsFolder = getCardsFolder()
+            val path = "$cardsFolder/tracked_files.json"
+            
+            val existingSha = try {
+                githubApi.getContent(token, owner, repo, path, branch).sha
+            } catch (e: Exception) {
+                null
+            }
+
+            val trackedList = getAllTrackedFiles()
+            val trackedJsonType = Types.newParameterizedType(List::class.java, com.example.data.local.entities.TrackedFileEntity::class.java)
+            val trackedJsonAdapter = moshi.adapter<List<com.example.data.local.entities.TrackedFileEntity>>(trackedJsonType)
+            val contentJson = trackedJsonAdapter.toJson(trackedList)
+            val contentBase64 = Base64.encodeToString(contentJson.toByteArray(), Base64.NO_WRAP)
+            
+            githubApi.putContent(
+                token, owner, repo, path,
+                GithubPutRequest(
+                    message = "Update tracked files list",
+                    content = contentBase64,
+                    sha = existingSha,
+                    branch = branch
+                )
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
     
     private suspend fun saveCardToGithub(card: Flashcard) {
         try {
@@ -699,6 +737,20 @@ class FlashcardRepository(
             onProgress("[$batchIndex/$totalBatches] Aggiornamento statistiche su GitHub...")
             saveStatsToGithub()
 
+            // Traccia il file completato
+            try {
+                val sha = fileContentResponse.sha ?: ""
+                val trackedFile = com.example.data.local.entities.TrackedFileEntity(
+                    path = sourceFile,
+                    lastSha = sha,
+                    lastIndexedAt = System.currentTimeMillis()
+                )
+                deepDiveDao.insertTrackedFile(trackedFile)
+                saveTrackedFilesToGithub()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+
             onProgress("[$batchIndex/$totalBatches] Sincronizzazione completata! ${finalCards.size} nuove card generate e caricate su GitHub.")
             return finalCards.size
         } catch (e: Exception) {
@@ -770,15 +822,44 @@ class FlashcardRepository(
         
         for ((index, item) in jsonFiles.withIndex()) {
             try {
+                if (item.name.equals("statistics.json", ignoreCase = true)) {
+                    continue
+                }
+                
+                if (item.name.equals("tracked_files.json", ignoreCase = true)) {
+                    onProgress("Ripristino elenco file tracciati da GitHub...")
+                    val fileContentResponse = githubApi.getContent(token, owner, repo, item.path, branch)
+                    val base64Content = fileContentResponse.content?.replace("\n", "")
+                    if (base64Content != null) {
+                        val contentJson = String(Base64.decode(base64Content, Base64.DEFAULT))
+                        val trackedJsonType = Types.newParameterizedType(List::class.java, com.example.data.local.entities.TrackedFileEntity::class.java)
+                        val trackedJsonAdapter = moshi.adapter<List<com.example.data.local.entities.TrackedFileEntity>>(trackedJsonType)
+                        val trackedList = trackedJsonAdapter.fromJson(contentJson) ?: emptyList()
+                        trackedList.forEach {
+                            deepDiveDao.insertTrackedFile(it)
+                        }
+                    }
+                    continue
+                }
+
                 onProgress("Scaricamento card (${index + 1}/${jsonFiles.size}): ${item.name}...")
                 val fileContentResponse = githubApi.getContent(token, owner, repo, item.path, branch)
                 val base64Content = fileContentResponse.content?.replace("\n", "")
                 if (base64Content != null) {
                     val contentJson = String(Base64.decode(base64Content, Base64.DEFAULT))
-                    val card = cardAdapter.fromJson(contentJson)
-                    if (card != null) {
-                        cardDao.insert(FlashcardMapper.toEntity(card))
-                        downloadedCount++
+                    
+                    if (contentJson.contains("\"hook\"") && contentJson.contains("\"body\"")) {
+                        val ddCard = deepDiveCardAdapter.fromJson(contentJson)
+                        if (ddCard != null) {
+                            deepDiveDao.insertCard(DeepDiveMapper.toEntity(ddCard))
+                            downloadedCount++
+                        }
+                    } else if (contentJson.contains("\"question\"") && contentJson.contains("\"correct_answer\"")) {
+                        val card = cardAdapter.fromJson(contentJson)
+                        if (card != null) {
+                            cardDao.insert(FlashcardMapper.toEntity(card))
+                            downloadedCount++
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -786,7 +867,7 @@ class FlashcardRepository(
             }
         }
         
-        onProgress("Database locale sincronizzato! $downloadedCount flashcard caricate.")
+        onProgress("Database locale sincronizzato! $downloadedCount elementi caricati.")
         return downloadedCount
     }
 
