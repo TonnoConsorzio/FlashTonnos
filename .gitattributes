@@ -1,0 +1,16 @@
+# Handle line endings for standard text files and scripts
+* text=auto
+
+gradlew text eol=lf
+*.sh text eol=lf
+*.bat text eol=crlf
+
+# Define binary files to prevent corruption during git operations
+*.jar binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.keystore binary
+*.so binary
