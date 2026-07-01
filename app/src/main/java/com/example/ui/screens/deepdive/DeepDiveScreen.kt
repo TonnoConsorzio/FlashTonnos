@@ -1,20 +1,15 @@
 package com.example.ui.screens.deepdive
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.ThumbDown
 import androidx.compose.material.icons.filled.ThumbUp
@@ -26,7 +21,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -36,15 +30,44 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.example.di.AppContainer
 import com.example.domain.models.DeepDiveCard
-import com.example.ui.utils.Loc
-import kotlinx.coroutines.delay
 
 /**
- * Schermata di visualizzazione degli Approfondimenti (Deep Dive) in stile TikTok.
- * Dispone di un VerticalPager che permette lo scorrimento verticale,
- * con tracciamento automatico del tempo di permanenza (dwell time) per ciascuna card.
+ * Generates a modern gradient background depending on the topic name hash.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun getTopicGradient(topic: String, isDark: Boolean): Brush {
+    val cleanTopic = topic.trim().lowercase()
+    val hash = Math.abs(cleanTopic.hashCode())
+    
+    val colorPairs = if (isDark) {
+        listOf(
+            Pair(Color(0xFF0F172A), Color(0xFF1E293B)), // Slate 900 to Slate 800
+            Pair(Color(0xFF09201A), Color(0xFF114D3E)), // Emerald/Teal Dark
+            Pair(Color(0xFF1E0E25), Color(0xFF4C1D5C)), // Royal Violet Dark
+            Pair(Color(0xFF1F1206), Color(0xFF432004)), // Chocolate/Amber Dark
+            Pair(Color(0xFF081C2E), Color(0xFF133F65)), // Sapphire Blue Dark
+            Pair(Color(0xFF171717), Color(0xFF2D2D2D))  // Dark Gray
+        )
+    } else {
+        listOf(
+            Pair(Color(0xFFEEF2F6), Color(0xFFD0D7DE)), // Soft Pearl/Silver
+            Pair(Color(0xFFE6F4EA), Color(0xFFA8DAB5)), // Soft Mint Green
+            Pair(Color(0xFFFCE8E6), Color(0xFFF1B0B7)), // Soft Rose Pink
+            Pair(Color(0xFFFEF3C7), Color(0xFFFDE68A)), // Soft Warm Apricot
+            Pair(Color(0xFFE0F2FE), Color(0xFF7DD3FC)), // Soft Sky Blue
+            Pair(Color(0xFFF5F5F5), Color(0xFFE5E5E5))  // Warm Light Gray
+        )
+    }
+    
+    val pair = colorPairs[hash % colorPairs.size]
+    return Brush.verticalGradient(
+        colors = listOf(pair.first, pair.second)
+    )
+}
+
+/**
+ * Immersive full-screen TikTok-style study deck for Deep Dives.
+ */
 @Composable
 fun DeepDiveScreen(
     appContainer: AppContainer,
@@ -55,166 +78,125 @@ fun DeepDiveScreen(
 ) {
     val lang by appContainer.flashcardRepository.selectedLanguageFlow.collectAsState(initial = "en")
     val feed by viewModel.feedState.collectAsState()
-    val isRefreshing by viewModel.isRefreshing.collectAsState()
-    val topics by viewModel.availableTopics.collectAsState()
-    val selectedTopic by viewModel.selectedTopic.collectAsState()
+    val darkTheme = isSystemInDarkTheme()
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = if (lang == "it") "Approfondimenti" else "Deep Dives",
-                        fontWeight = FontWeight.Bold
-                    )
-                },
-                navigationIcon = {
-                    IconButton(
-                        onClick = { navController?.navigateUp() },
-                        modifier = Modifier.testTag("back_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = if (lang == "it") "Indietro" else "Back"
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
-            )
-        }
-    ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .background(MaterialTheme.colorScheme.background)
-        ) {
-            // 1. Barra orizzontale dei filtri per argomento (Topic Chips)
-            if (topics.isNotEmpty()) {
-                LazyRow(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+    ) {
+        if (feed.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+                    .padding(32.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    item {
-                        FilterChip(
-                            selected = selectedTopic == null,
-                            onClick = { viewModel.selectTopic(null) },
-                            label = { Text(if (lang == "it") "Tutti" else "All") }
-                        )
-                    }
-                    items(topics) { topic ->
-                        FilterChip(
-                            selected = selectedTopic == topic,
-                            onClick = { viewModel.selectTopic(topic) },
-                            label = { Text(topic) }
-                        )
+                    Icon(
+                        imageVector = Icons.Default.Info,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.size(64.dp)
+                    )
+                    Text(
+                        text = if (lang == "it") {
+                            "Nessun approfondimento disponibile.\n\nAssicurati di aver configurato il repository e che l'auto-generazione abbia scansionato le tue note."
+                        } else {
+                            "No deep dives available.\n\nMake sure your repository is configured and auto-generation has scanned your notes."
+                        },
+                        style = MaterialTheme.typography.bodyLarge,
+                        textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            // Fixed back button for empty state
+            IconButton(
+                onClick = { navController?.navigateUp() },
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .navigationBarsPadding()
+                    .padding(start = 24.dp, bottom = 24.dp)
+                    .size(56.dp)
+                    .background(
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                        shape = RoundedCornerShape(28.dp)
+                    )
+                    .testTag("back_button")
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = if (lang == "it") "Indietro" else "Back",
+                    tint = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        } else {
+            val pagerState = rememberPagerState(pageCount = { feed.size })
+            
+            // Dwell time tracking variables
+            var activePage by remember { mutableIntStateOf(0) }
+            var pageStartTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
+            val explicitFeedbacks = remember { mutableStateMapOf<Int, Int>() }
+
+            LaunchedEffect(pagerState.currentPage) {
+                val previousPage = activePage
+                val duration = System.currentTimeMillis() - pageStartTime
+                
+                if (duration > 500 && previousPage < feed.size) {
+                    val prevCard = feed[previousPage]
+                    val feedback = explicitFeedbacks[previousPage] ?: 0
+                    viewModel.trackInteraction(prevCard, duration, feedback)
+                }
+                
+                activePage = pagerState.currentPage
+                pageStartTime = System.currentTimeMillis()
+            }
+
+            DisposableEffect(Unit) {
+                onDispose {
+                    val duration = System.currentTimeMillis() - pageStartTime
+                    if (duration > 500 && activePage < feed.size) {
+                        val card = feed[activePage]
+                        val feedback = explicitFeedbacks[activePage] ?: 0
+                        viewModel.trackInteraction(card, duration, feedback)
                     }
                 }
             }
 
-            // 2. Feed verticale stile TikTok delle Deep Dive
-            if (feed.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(32.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Info,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.secondary,
-                            modifier = Modifier.size(64.dp)
-                        )
-                        Text(
-                            text = if (lang == "it") {
-                                "Nessun approfondimento disponibile.\n\nAssicurati di aver configurato il repository e che l'auto-generazione abbia scansionato le tue note."
-                            } else {
-                                "No deep dives available.\n\nMake sure your repository is configured and auto-generation has scanned your notes."
-                            },
-                            style = MaterialTheme.typography.bodyLarge,
-                            textAlign = TextAlign.Center,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            } else {
-                val pagerState = rememberPagerState(pageCount = { feed.size })
-                
-                // Variabili per tracciare il tempo di permanenza (Dwell Time)
-                var activePage by remember { mutableIntStateOf(0) }
-                var pageStartTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
-                
-                // Mappa per salvare il feedback esplicito temporaneo per ciascun indice di pagina
-                val explicitFeedbacks = remember { mutableStateMapOf<Int, Int>() }
+            VerticalPager(
+                state = pagerState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .testTag("deep_dive_pager"),
+                contentPadding = PaddingValues(0.dp),
+                pageSpacing = 0.dp
+            ) { page ->
+                val card = feed[page]
+                val feedback = explicitFeedbacks[page] ?: 0
 
-                // LOGICA DI TRACCIAMENTO DEL TEMPO DI PERMANENZA (DWELL TIME)
-                // Questo effetto scatta ogni volta che la pagina attiva del Pager cambia.
-                // Quando l'utente passa ad una nuova card, calcoliamo i millisecondi trascorsi
-                // sulla card precedente e inviamo l'interazione al ViewModel.
-                LaunchedEffect(pagerState.currentPage) {
-                    val previousPage = activePage
-                    val duration = System.currentTimeMillis() - pageStartTime
-                    
-                    if (duration > 500 && previousPage < feed.size) {
-                        // Registra l'interazione per la card precedente
-                        val prevCard = feed[previousPage]
-                        val feedback = explicitFeedbacks[previousPage] ?: 0
-                        viewModel.trackInteraction(prevCard, duration, feedback)
-                    }
-                    
-                    // Aggiorna la pagina corrente e resetta il timer di inizio
-                    activePage = pagerState.currentPage
-                    pageStartTime = System.currentTimeMillis()
-                }
-
-                // Tracciamento nel caso in cui lo schermo venga chiuso o distrutto (onDispose)
-                DisposableEffect(Unit) {
-                    onDispose {
-                        val duration = System.currentTimeMillis() - pageStartTime
-                        if (duration > 500 && activePage < feed.size) {
-                            val card = feed[activePage]
-                            val feedback = explicitFeedbacks[activePage] ?: 0
-                            viewModel.trackInteraction(card, duration, feedback)
-                        }
-                    }
-                }
-
-                VerticalPager(
-                    state = pagerState,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .weight(1f)
-                        .testTag("deep_dive_pager"),
-                    contentPadding = PaddingValues(16.dp),
-                    pageSpacing = 16.dp
-                ) { page ->
-                    val card = feed[page]
-                    val feedback = explicitFeedbacks[page] ?: 0
-
-                    DeepDivePageItem(
-                        card = card,
-                        feedback = feedback,
-                        onLikeClicked = {
-                            val newFeedback = if (feedback == 1) 0 else 1
-                            explicitFeedbacks[page] = newFeedback
-                        },
-                        onDislikeClicked = {
-                            val newFeedback = if (feedback == -1) 0 else -1
-                            explicitFeedbacks[page] = newFeedback
-                        },
-                        lang = lang
-                    )
-                }
+                DeepDivePageItem(
+                    card = card,
+                    feedback = feedback,
+                    onLikeClicked = {
+                        val newFeedback = if (feedback == 1) 0 else 1
+                        explicitFeedbacks[page] = newFeedback
+                    },
+                    onDislikeClicked = {
+                        val newFeedback = if (feedback == -1) 0 else -1
+                        explicitFeedbacks[page] = newFeedback
+                    },
+                    onBackClicked = { navController?.navigateUp() },
+                    lang = lang,
+                    isDark = darkTheme
+                )
             }
         }
     }
@@ -226,181 +208,194 @@ fun DeepDivePageItem(
     feedback: Int,
     onLikeClicked: () -> Unit,
     onDislikeClicked: () -> Unit,
-    lang: String
+    onBackClicked: () -> Unit,
+    lang: String,
+    isDark: Boolean
 ) {
-    Card(
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .testTag("deep_dive_card"),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-        ),
-        border = androidx.compose.foundation.BorderStroke(
-            width = 1.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-        )
+            .background(getTopicGradient(card.topic, isDark))
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .padding(horizontal = 24.dp, vertical = 20.dp)
+            .testTag("deep_dive_card")
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp)
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // Sfondo con gradiente sottile nell'angolo
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.radialGradient(
-                            colors = listOf(
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.05f),
-                                Color.Transparent
-                            )
-                        )
-                    )
-            )
-
-            Column(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.SpaceBetween
+            // Upper Area: Only a clean topic identifier badge, no tags
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                // Parte superiore: Intestazione con Topic, Subtopic e tag
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(100),
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            tonalElevation = 2.dp
-                        ) {
-                            val displayTopic = card.topic.trim().uppercase()
-                            Text(
-                                text = if (displayTopic.isBlank()) "GENERALE" else displayTopic,
-                                style = MaterialTheme.typography.labelMedium.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                                ),
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                            )
-                        }
-
-                        if (card.subtopic.isNotBlank()) {
-                            Text(
-                                text = card.subtopic,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    // Sezione dei tag corti
-                    if (card.tags.isNotEmpty()) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            card.tags.forEach { tag ->
-                                SuggestionChip(
-                                    onClick = {},
-                                    label = { Text("#$tag", fontSize = 11.sp) }
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Parte centrale: Il Hook d'impatto (bold) e il Body dell'approfondimento
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .padding(vertical = 16.dp),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally
+                Surface(
+                    shape = RoundedCornerShape(100),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
+                    tonalElevation = 1.dp
                 ) {
-                    // Hook / Frase di aggancio ad alto impatto
+                    val displayTopic = card.topic.trim().uppercase()
                     Text(
-                        text = card.hook,
-                        style = MaterialTheme.typography.headlineSmall.copy(
+                        text = if (displayTopic.isBlank()) "GENERALE" else displayTopic,
+                        style = MaterialTheme.typography.labelLarge.copy(
                             fontWeight = FontWeight.ExtraBold,
-                            color = MaterialTheme.colorScheme.primary,
-                            textAlign = TextAlign.Center,
-                            lineHeight = 32.sp
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 16.dp)
-                    )
-
-                    Divider(
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-                        modifier = Modifier.width(60.dp).padding(bottom = 16.dp)
-                    )
-
-                    // Testo principale (Body)
-                    Text(
-                        text = card.body,
-                        style = MaterialTheme.typography.bodyLarge.copy(
-                            lineHeight = 26.sp,
-                            textAlign = TextAlign.Start,
+                            letterSpacing = 1.5.sp,
                             color = MaterialTheme.colorScheme.onSurface
                         ),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                     )
                 }
 
-                // Parte inferiore: Feedback utente Like/Dislike e info file sorgente
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Informazioni sul file sorgente
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = if (lang == "it") "Fonte" else "Source",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                if (card.subtopic.isNotBlank()) {
+                    Text(
+                        text = card.subtopic.uppercase(),
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.sp
+                        ),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                    )
+                }
+            }
+
+            // Central Area: Big impact hook/title and short readable body
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .padding(vertical = 24.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Hook / Large Impact Title
+                Text(
+                    text = card.hook,
+                    style = MaterialTheme.typography.displaySmall.copy(
+                        fontWeight = FontWeight.Black,
+                        fontSize = 30.sp,
+                        lineHeight = 38.sp,
+                        textAlign = TextAlign.Center,
+                        color = if (isDark) Color.White else MaterialTheme.colorScheme.primary
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 20.dp)
+                )
+
+                Box(
+                    modifier = Modifier
+                        .width(80.dp)
+                        .height(4.dp)
+                        .background(
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
+                            shape = RoundedCornerShape(2.dp)
                         )
-                        Text(
-                            text = card.source_file.substringAfterLast("/"),
-                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1
+                        .padding(bottom = 20.dp)
+                )
+
+                // Body text styled with modern clarity and generous line height
+                Text(
+                    text = card.body,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = 18.sp,
+                        lineHeight = 28.sp,
+                        fontWeight = FontWeight.Medium,
+                        textAlign = TextAlign.Start,
+                        color = MaterialTheme.colorScheme.onSurface
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            // Bottom Area: Immersive bottom navigation (Back, Source info, Like/Dislike)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Left: Back button and source file info
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    IconButton(
+                        onClick = onBackClicked,
+                        modifier = Modifier
+                            .size(52.dp)
+                            .background(
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                                shape = RoundedCornerShape(26.dp)
+                            )
+                            .testTag("back_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = if (lang == "it") "Indietro" else "Back",
+                            tint = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(24.dp)
                         )
                     }
 
-                    // Pulsanti di Feedback esplicito (+1 Like, -1 Dislike)
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Bottone Dislike
-                        IconButton(
-                            onClick = onDislikeClicked,
-                            modifier = Modifier.testTag("dislike_button")
-                        ) {
-                            Icon(
-                                imageVector = if (feedback == -1) Icons.Default.ThumbDown else Icons.Outlined.ThumbDown,
-                                contentDescription = "Dislike",
-                                tint = if (feedback == -1) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                    Column {
+                        Text(
+                          text = if (lang == "it") "Fonte" else "Source",
+                          style = MaterialTheme.typography.labelSmall,
+                          color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                        )
+                        Text(
+                          text = card.source_file.substringAfterLast("/"),
+                          style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                          color = MaterialTheme.colorScheme.onSurface,
+                          maxLines = 1
+                        )
+                    }
+                }
 
-                        // Bottone Like
-                        IconButton(
-                            onClick = onLikeClicked,
-                            modifier = Modifier.testTag("like_button")
-                        ) {
-                            Icon(
-                                imageVector = if (feedback == 1) Icons.Default.ThumbUp else Icons.Outlined.ThumbUp,
-                                contentDescription = "Like",
-                                tint = if (feedback == 1) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                // Right: Like/Dislike feedback buttons
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Dislike Button
+                    IconButton(
+                        onClick = onDislikeClicked,
+                        modifier = Modifier
+                            .size(52.dp)
+                            .background(
+                                color = if (feedback == -1) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                                shape = RoundedCornerShape(26.dp)
                             )
-                        }
+                            .testTag("dislike_button")
+                    ) {
+                        Icon(
+                            imageVector = if (feedback == -1) Icons.Default.ThumbDown else Icons.Outlined.ThumbDown,
+                            contentDescription = "Dislike",
+                            tint = if (feedback == -1) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+
+                    // Like Button
+                    IconButton(
+                        onClick = onLikeClicked,
+                        modifier = Modifier
+                            .size(52.dp)
+                            .background(
+                                color = if (feedback == 1) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                                shape = RoundedCornerShape(26.dp)
+                            )
+                            .testTag("like_button")
+                    ) {
+                        Icon(
+                            imageVector = if (feedback == 1) Icons.Default.ThumbUp else Icons.Outlined.ThumbUp,
+                            contentDescription = "Like",
+                            tint = if (feedback == 1) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                        )
                     }
                 }
             }

@@ -1015,6 +1015,138 @@ class FlashcardRepository(
         appPreferences.updateDemoInitialized(true)
     }
 
+    suspend fun saveDeepDiveToGithub(dd: DeepDiveCard) {
+        try {
+            val owner = appPreferences.githubOwnerFlow.first()
+            val repo = appPreferences.githubRepoFlow.first()
+            val branch = appPreferences.githubBranchFlow.first()
+            val token = "Bearer ${appPreferences.getGithubPat()}"
+            val cardsFolder = getCardsFolder()
+            val path = "$cardsFolder/${dd.id}.json"
+            
+            val existingSha = try {
+                githubApi.getContent(token, owner, repo, path, branch).sha
+            } catch (e: Exception) {
+                null
+            }
+
+            val contentJson = deepDiveCardAdapter.toJson(dd)
+            val contentBase64 = Base64.encodeToString(contentJson.toByteArray(), Base64.NO_WRAP)
+            
+            githubApi.putContent(
+                token, owner, repo, path,
+                GithubPutRequest("Update deep dive ${dd.id}", contentBase64, existingSha, branch)
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    suspend fun uploadAllLocalCardsToGithub(onProgress: (String) -> Unit): Int {
+        val owner = appPreferences.githubOwnerFlow.first()
+        val repo = appPreferences.githubRepoFlow.first()
+        val branch = appPreferences.githubBranchFlow.first()
+        val token = "Bearer ${appPreferences.getGithubPat()}"
+        
+        if (owner.isBlank() || repo.isBlank() || token.isBlank()) {
+            throw IllegalArgumentException("Credenziali incomplete! Configura GitHub prima di sincronizzare.")
+        }
+        
+        onProgress("Verifica connessione al repository GitHub...")
+        val connectionError = verifyGithubConnection()
+        if (connectionError != null) {
+            throw IllegalArgumentException(connectionError)
+        }
+        
+        onProgress("Inizio caricamento statistiche...")
+        saveStatsToGithub()
+        
+        onProgress("Inizio caricamento elenco file tracciati...")
+        saveTrackedFilesToGithub()
+        
+        val localFlashcards = getAllFlashcardsFlow().first()
+        val localDeepDives = getAllDeepDiveCardsFlow().first()
+        
+        val total = localFlashcards.size + localDeepDives.size
+        if (total == 0) {
+            onProgress("Nessuna card locale da caricare.")
+            return 0
+        }
+        
+        onProgress("Rilevate $total card locali da sincronizzare su GitHub...")
+        var uploaded = 0
+        
+        localFlashcards.forEachIndexed { index, card ->
+            onProgress("Caricamento flashcard (${index + 1}/${localFlashcards.size}): ${card.id}...")
+            saveCardToGithub(card)
+            uploaded++
+        }
+        
+        localDeepDives.forEachIndexed { index, dd ->
+            onProgress("Caricamento approfondimento (${index + 1}/${localDeepDives.size}): ${dd.id}...")
+            saveDeepDiveToGithub(dd)
+            uploaded++
+        }
+        
+        onProgress("Caricamento completato con successo! Sincronizzate $uploaded card su GitHub.")
+        return uploaded
+    }
+
+    fun startRegeneratingSingleFile(sourceFile: String, onCompleted: () -> Unit = {}) {
+        if (_isGenerating.value) return
+        _isGenerating.value = true
+        _generationResult.value = null
+        generationJob = repositoryScope.launch {
+            val lang = appPreferences.selectedLanguageFlow.first()
+            _generationProgress.value = if (lang == "it") "Eliminazione vecchi dati locali per $sourceFile..." else "Deleting old local data for $sourceFile..."
+            try {
+                // 1. Delete local card data
+                deleteLocalCardsBySourceFile(sourceFile)
+                
+                // 2. Fetch file content and run generation
+                val owner = appPreferences.githubOwnerFlow.first()
+                val repo = appPreferences.githubRepoFlow.first()
+                val branch = appPreferences.githubBranchFlow.first()
+                val rawToken = appPreferences.getGithubPat()
+                val token = "Bearer $rawToken"
+                
+                _generationProgress.value = if (lang == "it") "Recupero informazioni file da GitHub..." else "Retrieving file info from GitHub..."
+                val fileContentResponse = githubApi.getContent(token, owner, repo, sourceFile, branch)
+                val sha = fileContentResponse.sha ?: ""
+                
+                val generateUseCase = com.example.domain.usecases.AutoGenerationUseCase(
+                    githubApi = githubApi,
+                    openRouterApi = openRouterApi,
+                    deepDiveDao = deepDiveDao,
+                    repository = this@FlashcardRepository,
+                    appPreferences = appPreferences,
+                    context = context
+                )
+                
+                val filesToProcess = listOf(com.example.domain.usecases.FileToProcess(sourceFile, sha))
+                generateUseCase.execute(filesToProcess) { progress ->
+                    _generationProgress.value = progress
+                }
+                
+                _generationResult.value = if (lang == "it") {
+                    "✓ File $sourceFile rigenerato correttamente!"
+                } else {
+                    "✓ File $sourceFile successfully regenerated!"
+                }
+            } catch (e: Exception) {
+                _generationResult.value = if (lang == "it") {
+                    "Errore durante la rigenerazione: ${e.localizedMessage ?: "Errore generico"}"
+                } else {
+                    "Error during regeneration: ${e.localizedMessage ?: "Generic error"}"
+                }
+                e.printStackTrace()
+            } finally {
+                _isGenerating.value = false
+                onCompleted()
+            }
+        }
+    }
+
     suspend fun deleteLocalCardsBySourceFile(sourceFile: String) {
         cardDao.deleteCardsBySourceFile(sourceFile)
         deepDiveDao.deleteCardsBySourceFile(sourceFile)

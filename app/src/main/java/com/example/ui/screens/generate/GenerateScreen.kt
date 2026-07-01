@@ -287,7 +287,9 @@ fun GenerateScreen(
                     items(trackedFilesWithStats) { fileStats ->
                         TrackedFileItem(
                             stats = fileStats,
-                            lang = lang
+                            lang = lang,
+                            isGenerating = isGenerating,
+                            onRegenerateClicked = { viewModel.regenerateFile(fileStats.path) }
                         )
                     }
                 }
@@ -299,7 +301,9 @@ fun GenerateScreen(
 @Composable
 fun TrackedFileItem(
     stats: TrackedFileStats,
-    lang: String
+    lang: String,
+    isGenerating: Boolean,
+    onRegenerateClicked: () -> Unit
 ) {
     Card(
         modifier = Modifier
@@ -407,6 +411,25 @@ fun TrackedFileItem(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            OutlinedButton(
+                onClick = onRegenerateClicked,
+                enabled = !isGenerating,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = if (lang == "it") "Rigenera Flashcard e Approfondimenti" else "Regenerate Flashcards & Deep Dives"
+                )
             }
         }
     }

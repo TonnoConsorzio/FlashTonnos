@@ -94,8 +94,8 @@ class AutoGenerationUseCase(
                 val chunks = chunkMarkdown(markdownText)
                 
                 onProgress(
-                    if (lang == "it") "File suddiviso in ${chunks.size} chunk. Generazione in corso..."
-                    else "File split into ${chunks.size} chunks. Starting generation..."
+                    if (lang == "it") "File suddiviso in ${chunks.size} sezioni di studio. Generazione in corso..."
+                    else "File split into ${chunks.size} study sections. Starting generation..."
                 )
 
                 for ((chunkIdx, chunk) in chunks.withIndex()) {
@@ -113,8 +113,8 @@ class AutoGenerationUseCase(
                         val requestedTypes = typesToRequest.joinToString(" e ")
 
                         onProgress(
-                            if (lang == "it") "[Chunk ${chunkIdx + 1}/${chunks.size}] Generazione di $qaAmount flashcard ($requestedTypes)..."
-                            else "[Chunk ${chunkIdx + 1}/${chunks.size}] Generating $qaAmount flashcards ($requestedTypes)..."
+                            if (lang == "it") "[Sezione ${chunkIdx + 1}/${chunks.size}] Generazione di $qaAmount flashcard ($requestedTypes)..."
+                            else "[Section ${chunkIdx + 1}/${chunks.size}] Generating $qaAmount flashcards ($requestedTypes)..."
                         )
 
                         val prompt = buildQAPrompt(chunk, qaAmount, typesToRequest, lang)
@@ -161,8 +161,8 @@ class AutoGenerationUseCase(
                     // 2.2 Generazione Deep Dive
                     if (ddAmount > 0 && ddEnabled) {
                         onProgress(
-                            if (lang == "it") "[Chunk ${chunkIdx + 1}/${chunks.size}] Generazione di $ddAmount Approfondimenti..."
-                            else "[Chunk ${chunkIdx + 1}/${chunks.size}] Generating $ddAmount Deep Dives..."
+                            if (lang == "it") "[Sezione ${chunkIdx + 1}/${chunks.size}] Generazione di $ddAmount Approfondimenti..."
+                            else "[Section ${chunkIdx + 1}/${chunks.size}] Generating $ddAmount Deep Dives..."
                         )
 
                         val prompt = buildDeepDivePrompt(chunk, ddAmount, lang)

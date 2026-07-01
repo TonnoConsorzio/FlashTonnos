@@ -45,6 +45,37 @@ class SettingsViewModel(
     fun clearVerificationResult() {
         _verificationResult.value = null
     }
+
+    private val _isSyncingToGithub = kotlinx.coroutines.flow.MutableStateFlow(false)
+    val isSyncingToGithub: StateFlow<Boolean> = _isSyncingToGithub
+
+    private val _syncToGithubResult = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    val syncToGithubResult: StateFlow<String?> = _syncToGithubResult
+
+    private val _syncProgress = kotlinx.coroutines.flow.MutableStateFlow("")
+    val syncProgress: StateFlow<String> = _syncProgress
+
+    fun uploadLocalDataToGithub() {
+        _isSyncingToGithub.value = true
+        _syncToGithubResult.value = null
+        _syncProgress.value = "Avvio sincronizzazione..."
+        viewModelScope.launch {
+            try {
+                val count = repository.uploadAllLocalCardsToGithub { progress ->
+                    _syncProgress.value = progress
+                }
+                _syncToGithubResult.value = "Successo: $count elementi caricati e sincronizzati correttamente con GitHub! 🎉"
+            } catch (e: Exception) {
+                _syncToGithubResult.value = "Errore durante il caricamento: ${e.localizedMessage ?: "Errore generico"}"
+            } finally {
+                _isSyncingToGithub.value = false
+            }
+        }
+    }
+
+    fun clearSyncResult() {
+        _syncToGithubResult.value = null
+    }
     
     fun getGithubPat() = preferences.getGithubPat()
     fun getOpenRouterKey() = preferences.getOpenRouterKey()

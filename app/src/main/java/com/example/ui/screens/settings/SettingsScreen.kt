@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
@@ -62,6 +63,9 @@ fun SettingsScreen(
     val studyMode by viewModel.studyMode.collectAsState()
     val isVerifying by viewModel.isVerifying.collectAsState()
     val verificationResult by viewModel.verificationResult.collectAsState()
+    val isSyncingToGithub by viewModel.isSyncingToGithub.collectAsState()
+    val syncToGithubResult by viewModel.syncToGithubResult.collectAsState()
+    val syncProgress by viewModel.syncProgress.collectAsState()
     val sourceFolders by viewModel.sourceFolders.collectAsState()
 
     var githubPat by remember { mutableStateOf(viewModel.getGithubPat()) }
@@ -701,6 +705,67 @@ fun SettingsScreen(
                             Text(Loc.get("verify_conn_btn", lang))
                         }
                     }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Text(
+                        text = if (lang == "it") "Sincronizzazione Manuale" else "Manual Synchronization",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = if (lang == "it") {
+                            "Carica tutte le flashcard e i dati di avanzamento locali nel repository GitHub configurato per sincronizzarli su altri dispositivi."
+                        } else {
+                            "Upload all local flashcards and learning progress data to the configured GitHub repository to sync them across other devices."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Button(
+                        onClick = { viewModel.uploadLocalDataToGithub() },
+                        enabled = !isSyncingToGithub && !isVerifying,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    ) {
+                        if (isSyncingToGithub) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(if (lang == "it") "Caricamento in corso..." else "Uploading...")
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Backup,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(if (lang == "it") "Carica tutto su GitHub" else "Upload everything to GitHub")
+                        }
+                    }
+
+                    if (isSyncingToGithub && syncProgress.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = syncProgress,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.fillMaxWidth(),
+                            textAlign = TextAlign.Center
+                        )
+                    }
                 }
             }
         }
@@ -871,6 +936,46 @@ fun SettingsScreen(
             text = {
                 Text(
                     text = verificationResult ?: "",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            },
+            shape = RoundedCornerShape(20.dp)
+        )
+    }
+
+    if (syncToGithubResult != null) {
+        AlertDialog(
+            onDismissRequest = { viewModel.clearSyncResult() },
+            confirmButton = {
+                Button(onClick = { viewModel.clearSyncResult() }) {
+                    Text("OK")
+                }
+            },
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val isSuccess = syncToGithubResult?.contains("successo", ignoreCase = true) == true || syncToGithubResult?.contains("success", ignoreCase = true) == true
+                    Icon(
+                        imageVector = if (isSuccess) Icons.Default.CheckCircle else Icons.Default.Cancel,
+                        contentDescription = null,
+                        tint = if (isSuccess) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                    )
+                    Text(
+                        text = if (isSuccess) {
+                            if (lang == "it") "Caricamento Completato" else "Upload Completed"
+                        } else {
+                            if (lang == "it") "Errore Caricamento" else "Upload Error"
+                        },
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                    )
+                }
+            },
+            text = {
+                Text(
+                    text = syncToGithubResult ?: "",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

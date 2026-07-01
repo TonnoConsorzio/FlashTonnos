@@ -91,6 +91,12 @@ class GenerateViewModel(private val repository: FlashcardRepository) : ViewModel
         }
     }
 
+    fun regenerateFile(path: String) {
+        repository.startRegeneratingSingleFile(path) {
+            loadTrackedFiles()
+        }
+    }
+
     fun cancelGeneration() {
         repository.cancelGeneration()
     }
