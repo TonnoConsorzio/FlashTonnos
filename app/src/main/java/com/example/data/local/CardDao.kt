@@ -36,4 +36,7 @@ interface CardDao {
 
     @Query("DELETE FROM flashcards")
     suspend fun clearAll()
+
+    @Query("SELECT COUNT(*) FROM flashcards WHERE status = 'active'")
+    fun countActiveFlashcards(): Flow<Int>
 }

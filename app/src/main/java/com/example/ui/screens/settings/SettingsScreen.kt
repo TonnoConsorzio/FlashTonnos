@@ -808,7 +808,89 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(16.dp))
                     
                     var showDeleteConfirm by remember { mutableStateOf(false) }
-                    
+                    var showResetStatsConfirm by remember { mutableStateOf(false) }
+                    var isResettingStats by remember { mutableStateOf(false) }
+
+                    Button(
+                        onClick = { showResetStatsConfirm = true },
+                        enabled = !isResettingStats,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                        ),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        if (isResettingStats) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (lang == "it") "Azzera Statistiche di Studio" else "Reset Study Statistics"
+                        )
+                    }
+
+                    if (showResetStatsConfirm) {
+                        AlertDialog(
+                            onDismissRequest = { showResetStatsConfirm = false },
+                            confirmButton = {
+                                Button(
+                                    onClick = {
+                                        showResetStatsConfirm = false
+                                        isResettingStats = true
+                                        viewModel.resetStudyStatistics {
+                                            isResettingStats = false
+                                            Toast.makeText(
+                                                context,
+                                                if (lang == "it") "Statistiche ripristinate con successo!" else "Statistics successfully reset!",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = MaterialTheme.colorScheme.error,
+                                        contentColor = MaterialTheme.colorScheme.onError
+                                    )
+                                ) {
+                                    Text(if (lang == "it") "Azzera" else "Reset")
+                                }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showResetStatsConfirm = false }) {
+                                    Text(Loc.get("cancel", lang))
+                                }
+                            },
+                            title = {
+                                Text(
+                                    text = if (lang == "it") "Conferma Ripristino" else "Confirm Reset",
+                                    fontWeight = FontWeight.Bold
+                                )
+                            },
+                            text = {
+                                Text(
+                                    text = if (lang == "it") {
+                                        "Sei sicuro di voler azzerare tutti i progressi di studio, punteggi e cronologia? Le flashcard e gli approfondimenti NON verranno cancellati."
+                                    } else {
+                                        "Are you sure you want to reset all study progress, scores, and history? Flashcards and deep dives will NOT be deleted."
+                                    }
+                                )
+                            },
+                            shape = RoundedCornerShape(20.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
                     Button(
                         onClick = { showDeleteConfirm = true },
                         colors = ButtonDefaults.buttonColors(

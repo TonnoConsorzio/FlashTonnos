@@ -125,6 +125,13 @@ class SettingsViewModel(
         }
     }
 
+    fun resetStudyStatistics(onSuccess: () -> Unit) {
+        viewModelScope.launch {
+            repository.resetStudyStatistics()
+            onSuccess()
+        }
+    }
+
     class Factory(
         private val preferences: AppPreferences,
         private val repository: FlashcardRepository

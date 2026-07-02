@@ -181,10 +181,17 @@ class AutoGenerationUseCase(
                                 })
 
                                 // Carica su GitHub in parallelo
+                                val totalCards = finalCards.size
+                                val savedCardsCount = java.util.concurrent.atomic.AtomicInteger(0)
                                 coroutineScope {
                                     finalCards.forEach { card ->
                                         launch {
                                             saveFlashcardToGithub(token, owner, repo, branch, cardsFolder, card)
+                                            val current = savedCardsCount.incrementAndGet()
+                                            onProgress(
+                                                if (lang == "it") "Salvando su GitHub: $current/$totalCards card..."
+                                                else "Saving to GitHub: $current/$totalCards cards..."
+                                            )
                                         }
                                     }
                                 }
@@ -239,10 +246,17 @@ class AutoGenerationUseCase(
                                 })
 
                                 // Carica su GitHub in parallelo
+                                val totalDD = finalDeepDives.size
+                                val savedDDCount = java.util.concurrent.atomic.AtomicInteger(0)
                                 coroutineScope {
                                     finalDeepDives.forEach { dd ->
                                         launch {
                                             saveDeepDiveToGithub(token, owner, repo, branch, cardsFolder, dd)
+                                            val current = savedDDCount.incrementAndGet()
+                                            onProgress(
+                                                if (lang == "it") "Salvando su GitHub: $current/$totalDD card..."
+                                                else "Saving to GitHub: $current/$totalDD cards..."
+                                            )
                                         }
                                     }
                                 }
@@ -574,15 +588,18 @@ class AutoGenerationUseCase(
     private suspend fun saveFlashcardToGithub(
         token: String, owner: String, repo: String, branch: String, cardsFolder: String, card: Flashcard
     ) {
+        val path = "$cardsFolder/${card.id}.json"
+        android.util.Log.d("GitHub", "Saving card ${card.id} to $path")
         try {
-            val path = "$cardsFolder/${card.id}.json"
             val contentJson = cardAdapter.toJson(card)
             val contentBase64 = Base64.encodeToString(contentJson.toByteArray(), Base64.NO_WRAP)
             githubApi.putContent(
                 token, owner, repo, path,
                 GithubPutRequest("Auto-generated QA flashcard ${card.id}", contentBase64, null, branch)
             )
+            android.util.Log.d("GitHub", "✓ Card ${card.id} saved")
         } catch (e: Exception) {
+            android.util.Log.e("GitHub", "✗ Card ${card.id} failed: ${e.message}")
             e.printStackTrace()
         }
     }
@@ -590,15 +607,18 @@ class AutoGenerationUseCase(
     private suspend fun saveDeepDiveToGithub(
         token: String, owner: String, repo: String, branch: String, cardsFolder: String, dd: DeepDiveCard
     ) {
+        val path = "$cardsFolder/${dd.id}.json"
+        android.util.Log.d("GitHub", "Saving card ${dd.id} to $path")
         try {
-            val path = "$cardsFolder/${dd.id}.json"
             val contentJson = deepDiveCardAdapter.toJson(dd)
             val contentBase64 = Base64.encodeToString(contentJson.toByteArray(), Base64.NO_WRAP)
             githubApi.putContent(
                 token, owner, repo, path,
                 GithubPutRequest("Auto-generated Deep Dive ${dd.id}", contentBase64, null, branch)
             )
+            android.util.Log.d("GitHub", "✓ Card ${dd.id} saved")
         } catch (e: Exception) {
+            android.util.Log.e("GitHub", "✗ Card ${dd.id} failed: ${e.message}")
             e.printStackTrace()
         }
     }

@@ -35,15 +35,30 @@ class GenerateViewModel(private val repository: FlashcardRepository) : ViewModel
     private val _markdownFiles = MutableStateFlow<List<String>>(emptyList())
     val markdownFiles: StateFlow<List<String>> = _markdownFiles.asStateFlow()
 
-    private val _trackedFiles = MutableStateFlow<List<com.example.data.local.entities.TrackedFileEntity>>(emptyList())
-    val trackedFiles: StateFlow<List<com.example.data.local.entities.TrackedFileEntity>> = _trackedFiles.asStateFlow()
+    val trackedFiles: StateFlow<List<com.example.data.local.entities.TrackedFileEntity>> = repository.getAllTrackedFilesFlow().stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    val flashcardCount: StateFlow<Int> = repository.countActiveFlashcards().stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = 0
+    )
+
+    val deepDiveCount: StateFlow<Int> = repository.countActiveDeepDives().stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = 0
+    )
 
     private fun normalizePath(path: String): String {
         return path.trim('/').replace("\\", "/").lowercase()
     }
 
     val trackedFileStats: StateFlow<List<TrackedFileStats>> = combine(
-        _trackedFiles,
+        trackedFiles,
         repository.getAllFlashcardsFlow(),
         repository.getAllDeepDiveCardsFlow()
     ) { files, flashcards, deepDives ->
@@ -72,29 +87,14 @@ class GenerateViewModel(private val repository: FlashcardRepository) : ViewModel
 
     init {
         scanRepository()
-        loadTrackedFiles()
-    }
-
-    fun loadTrackedFiles() {
-        viewModelScope.launch {
-            try {
-                _trackedFiles.value = repository.getAllTrackedFiles()
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
     }
 
     fun triggerAutoGeneration() {
-        repository.startAutoGenerationBackground {
-            loadTrackedFiles()
-        }
+        repository.startAutoGenerationBackground(force = true)
     }
 
     fun regenerateFile(path: String) {
-        repository.startRegeneratingSingleFile(path) {
-            loadTrackedFiles()
-        }
+        repository.startRegeneratingSingleFile(path)
     }
 
     fun cancelGeneration() {

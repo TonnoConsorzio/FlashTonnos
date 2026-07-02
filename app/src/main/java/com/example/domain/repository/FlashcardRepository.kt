@@ -71,12 +71,13 @@ class FlashcardRepository(
         _isGenerating.value = generating
     }
 
-    fun startAutoGenerationBackground(onCompleted: () -> Unit = {}) {
+    fun startAutoGenerationBackground(force: Boolean = false, onCompleted: () -> Unit = {}) {
         val workRequest = androidx.work.OneTimeWorkRequestBuilder<com.example.data.worker.AutoGenerationWorker>()
             .build()
+        val policy = if (force) androidx.work.ExistingWorkPolicy.REPLACE else androidx.work.ExistingWorkPolicy.KEEP
         androidx.work.WorkManager.getInstance(context).enqueueUniqueWork(
             "auto_generation",
-            androidx.work.ExistingWorkPolicy.KEEP,
+            policy,
             workRequest
         )
         onCompleted()
@@ -91,6 +92,18 @@ class FlashcardRepository(
 
     suspend fun getAllTrackedFiles(): List<com.example.data.local.entities.TrackedFileEntity> {
         return deepDiveDao.getAllTrackedFiles()
+    }
+
+    fun getAllTrackedFilesFlow(): Flow<List<com.example.data.local.entities.TrackedFileEntity>> {
+        return deepDiveDao.getAllTrackedFilesFlow()
+    }
+
+    fun countActiveFlashcards(): Flow<Int> {
+        return cardDao.countActiveFlashcards()
+    }
+
+    fun countActiveDeepDives(): Flow<Int> {
+        return deepDiveDao.countActiveDeepDives()
     }
 
     suspend fun runAutoGeneration() {
@@ -519,23 +532,33 @@ class FlashcardRepository(
             val token = "Bearer ${appPreferences.getGithubPat()}"
             if (owner.isBlank() || repo.isBlank() || token.isBlank()) return
 
-            val exists = try {
-                githubApi.getContent(token, owner, repo, "FlashTonnos/.keep", branch)
-                true
-            } catch (e: Exception) {
-                false
-            }
+            listOf(
+                "FlashTonnos/.keep",
+                "FlashTonnos/cards/.keep",
+                "FlashTonnos/stats/.keep"
+            ).forEach { path ->
+                val exists = try {
+                    githubApi.getContent(token, owner, repo, path, branch)
+                    true
+                } catch (e: Exception) {
+                    false
+                }
 
-            if (!exists) {
-                githubApi.putContent(
-                    token, owner, repo, "FlashTonnos/.keep",
-                    GithubPutRequest(
-                        message = "FlashTonnos: initialize folder structure",
-                        content = Base64.encodeToString("".toByteArray(), Base64.NO_WRAP),
-                        sha = null,
-                        branch = branch
-                    )
-                )
+                if (!exists) {
+                    try {
+                        githubApi.putContent(
+                            token, owner, repo, path,
+                            GithubPutRequest(
+                                message = "FlashTonnos: initialize folder structure",
+                                content = Base64.encodeToString("".toByteArray(), Base64.NO_WRAP),
+                                sha = null,
+                                branch = branch
+                            )
+                        )
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -1305,6 +1328,25 @@ class FlashcardRepository(
         deepDiveDao.clearInteractions()
         deepDiveDao.clearTrackedFiles()
         appPreferences.updateDemoInitialized(false)
+    }
+
+    suspend fun resetStudyStatistics() {
+        // 1. Reset local flashcard difficulty and study counts
+        val allCards = cardDao.getAllCards().first()
+        val resetCards = allCards.map { card ->
+            card.copy(
+                timesShown = 0,
+                timesCorrect = 0,
+                difficulty = "medium"
+            )
+        }
+        cardDao.insertAll(resetCards)
+
+        // 2. Clear deep dive interaction history
+        deepDiveDao.clearInteractions()
+
+        // 3. Sync clean stats to GitHub
+        saveStatsToGithub()
     }
 }
 

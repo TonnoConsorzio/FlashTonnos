@@ -119,8 +119,8 @@ fun StatsScreen(
                         title = Loc.get("correct_label", lang),
                         value = "${stats["correct"]}",
                         icon = Icons.Default.CheckCircle,
-                        iconColor = Color(0xFF4CAF50),
-                        backgroundColor = Color(0xFFE8F5E9).copy(alpha = 0.15f),
+                        iconColor = MaterialTheme.colorScheme.primary,
+                        backgroundColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
                         modifier = Modifier.weight(1f)
                     )
                     StatCard(
@@ -128,7 +128,7 @@ fun StatsScreen(
                         value = "${stats["incorrect"]}",
                         icon = Icons.Default.Cancel,
                         iconColor = MaterialTheme.colorScheme.error,
-                        backgroundColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f),
+                        backgroundColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -174,7 +174,7 @@ fun StatsScreen(
                                 Icon(
                                     imageVector = Icons.Default.Whatshot,
                                     contentDescription = null,
-                                    tint = Color(0xFFFF9800),
+                                    tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(24.dp)
                                 )
                             }
@@ -212,7 +212,7 @@ fun StatsScreen(
                                 Icon(
                                     imageVector = Icons.Default.EmojiEvents,
                                     contentDescription = null,
-                                    tint = Color(0xFFFFD700),
+                                    tint = MaterialTheme.colorScheme.tertiary,
                                     modifier = Modifier.size(24.dp)
                                 )
                             }
@@ -429,7 +429,7 @@ fun StatCard(
         modifier = modifier,
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
         ),
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
@@ -490,11 +490,15 @@ fun DifficultyDistributionChart(
     val pMedium = if (total > 0) medium / total else 0f
     val pHard = if (total > 0) hard / total else 0f
     
+    val colorEasy = MaterialTheme.colorScheme.primary
+    val colorMedium = MaterialTheme.colorScheme.secondary
+    val colorHard = MaterialTheme.colorScheme.error
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
         ),
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
@@ -521,7 +525,7 @@ fun DifficultyDistributionChart(
                         modifier = Modifier
                             .fillMaxHeight()
                             .weight(easy)
-                            .background(Color(0xFF81C784)), // Soft green
+                            .background(colorEasy),
                         contentAlignment = Alignment.Center
                     ) {
                         if (pEasy > 0.12f) {
@@ -529,7 +533,7 @@ fun DifficultyDistributionChart(
                                 text = "${(pEasy * 100).toInt()}%",
                                 style = MaterialTheme.typography.labelSmall.copy(
                                     fontWeight = FontWeight.Bold, 
-                                    color = Color.White
+                                    color = MaterialTheme.colorScheme.onPrimary
                                 )
                             )
                         }
@@ -540,7 +544,7 @@ fun DifficultyDistributionChart(
                         modifier = Modifier
                             .fillMaxHeight()
                             .weight(medium)
-                            .background(Color(0xFFFFB74D)), // Soft orange
+                            .background(colorMedium),
                         contentAlignment = Alignment.Center
                     ) {
                         if (pMedium > 0.12f) {
@@ -548,7 +552,7 @@ fun DifficultyDistributionChart(
                                 text = "${(pMedium * 100).toInt()}%",
                                 style = MaterialTheme.typography.labelSmall.copy(
                                     fontWeight = FontWeight.Bold, 
-                                    color = Color.White
+                                    color = MaterialTheme.colorScheme.onSecondary
                                 )
                             )
                         }
@@ -559,7 +563,7 @@ fun DifficultyDistributionChart(
                         modifier = Modifier
                             .fillMaxHeight()
                             .weight(hard)
-                            .background(Color(0xFFE57373)), // Soft red
+                            .background(colorHard),
                         contentAlignment = Alignment.Center
                     ) {
                         if (pHard > 0.12f) {
@@ -567,7 +571,7 @@ fun DifficultyDistributionChart(
                                 text = "${(pHard * 100).toInt()}%",
                                 style = MaterialTheme.typography.labelSmall.copy(
                                     fontWeight = FontWeight.Bold, 
-                                    color = Color.White
+                                    color = MaterialTheme.colorScheme.onError
                                 )
                             )
                         }
@@ -582,9 +586,9 @@ fun DifficultyDistributionChart(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                LegendItem(color = Color(0xFF81C784), label = Loc.get("easy_label", lang), count = easy.toInt(), lang = lang)
-                LegendItem(color = Color(0xFFFFB74D), label = Loc.get("medium_label", lang), count = medium.toInt(), lang = lang)
-                LegendItem(color = Color(0xFFE57373), label = Loc.get("hard_label", lang), count = hard.toInt(), lang = lang)
+                LegendItem(color = colorEasy, label = Loc.get("easy_label", lang), count = easy.toInt(), lang = lang)
+                LegendItem(color = colorMedium, label = Loc.get("medium_label", lang), count = medium.toInt(), lang = lang)
+                LegendItem(color = colorHard, label = Loc.get("hard_label", lang), count = hard.toInt(), lang = lang)
             }
         }
     }

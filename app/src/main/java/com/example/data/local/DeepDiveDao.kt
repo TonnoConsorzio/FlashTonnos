@@ -81,4 +81,10 @@ interface DeepDiveDao {
 
     @Query("DELETE FROM tracked_files")
     suspend fun clearTrackedFiles()
+
+    @Query("SELECT COUNT(*) FROM deep_dive_cards WHERE status = 'active'")
+    fun countActiveDeepDives(): Flow<Int>
+
+    @Query("SELECT * FROM tracked_files ORDER BY lastIndexedAt DESC")
+    fun getAllTrackedFilesFlow(): Flow<List<TrackedFileEntity>>
 }
