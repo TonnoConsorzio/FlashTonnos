@@ -34,6 +34,13 @@ class StudyViewModel(private val repository: FlashcardRepository) : ViewModel() 
 
     private val _currentCardIndex = MutableStateFlow(0)
     val currentCardIndex: StateFlow<Int> = _currentCardIndex.asStateFlow()
+
+    fun setCurrentCardIndex(index: Int) {
+        if (index in _studyQueue.value.indices) {
+            _currentCardIndex.value = index
+            _isFlipped.value = false
+        }
+    }
     
     private val _isFlipped = MutableStateFlow(false)
     val isFlipped: StateFlow<Boolean> = _isFlipped.asStateFlow()
@@ -148,8 +155,10 @@ class StudyViewModel(private val repository: FlashcardRepository) : ViewModel() 
         viewModelScope.launch {
             repository.getStudyQueue().collect { cards ->
                 _rawStudyQueue.value = cards
-                // If local memory study queue is empty, load it once initially
-                if (_studyQueue.value.isEmpty()) {
+                if (cards.isEmpty()) {
+                    _studyQueue.value = emptyList()
+                    _currentCardIndex.value = 0
+                } else if (_studyQueue.value.isEmpty()) {
                     loadStudyQueue()
                 }
             }
@@ -183,6 +192,22 @@ class StudyViewModel(private val repository: FlashcardRepository) : ViewModel() 
         
         viewModelScope.launch {
             repository.updateCard(updatedCard)
+        }
+    }
+
+    fun discardCard(card: Flashcard) {
+        viewModelScope.launch {
+            repository.deleteCardById(card.id)
+            val currentQueue = _studyQueue.value.toMutableList()
+            val index = currentQueue.indexOfFirst { it.id == card.id }
+            if (index != -1) {
+                currentQueue.removeAt(index)
+                _studyQueue.value = currentQueue
+                if (_currentCardIndex.value >= currentQueue.size) {
+                    _currentCardIndex.value = 0
+                }
+            }
+            _isFlipped.value = false
         }
     }
 

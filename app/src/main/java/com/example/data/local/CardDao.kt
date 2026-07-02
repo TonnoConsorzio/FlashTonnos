@@ -31,6 +31,9 @@ interface CardDao {
     @Query("DELETE FROM flashcards WHERE sourceFile = :sourceFile")
     suspend fun deleteCardsBySourceFile(sourceFile: String)
 
+    @Query("DELETE FROM flashcards WHERE id = :id")
+    suspend fun deleteCardById(id: String)
+
     @Query("DELETE FROM flashcards")
     suspend fun clearAll()
 }

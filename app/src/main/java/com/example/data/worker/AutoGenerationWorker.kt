@@ -34,20 +34,29 @@ class AutoGenerationWorker(
             context = applicationContext
         )
 
+        container.flashcardRepository.setGenerating(true)
+        container.flashcardRepository.setGenerationProgress("Generazione avviata")
         return try {
+            // Primo avvio / controllo cartella
+            container.flashcardRepository.ensureFlashTonnosFolderExists()
+
             // Rileva file modificati/nuovi
             val filesToProcess = detectUseCase.execute()
             if (filesToProcess.isNotEmpty()) {
                 // Esegui la generazione in background
                 generateUseCase.execute(filesToProcess) { progress ->
-                    // Possiamo loggare il progresso o aggiornare lo stato se necessario
-                    println("Background AutoGen: $progress")
+                    container.flashcardRepository.setGenerationProgress(progress)
                 }
+            } else {
+                container.flashcardRepository.setGenerationProgress("Tutti i file sono aggiornati!")
             }
             Result.success()
         } catch (e: Exception) {
             e.printStackTrace()
+            container.flashcardRepository.setGenerationProgress("Errore durante la generazione: ${e.localizedMessage}")
             Result.retry()
+        } finally {
+            container.flashcardRepository.setGenerating(false)
         }
     }
 }

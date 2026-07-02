@@ -5,9 +5,11 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
+import androidx.room.Transaction
 import com.example.data.local.entities.DeepDiveCardEntity
 import com.example.data.local.entities.DeepDiveInteractionEntity
 import com.example.data.local.entities.TrackedFileEntity
+import com.example.data.local.entities.FlashcardEntity
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -30,6 +32,9 @@ interface DeepDiveDao {
 
     @Query("DELETE FROM deep_dive_cards WHERE sourceFile = :sourceFile")
     suspend fun deleteCardsBySourceFile(sourceFile: String)
+
+    @Query("DELETE FROM deep_dive_cards WHERE id = :id")
+    suspend fun deleteCardById(id: String)
 
     @Query("DELETE FROM deep_dive_cards")
     suspend fun clearCards()
@@ -59,6 +64,20 @@ interface DeepDiveDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTrackedFile(file: TrackedFileEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAllFlashcards(cards: List<FlashcardEntity>)
+
+    @Transaction
+    suspend fun saveGenerationResult(
+        trackedFile: TrackedFileEntity,
+        cards: List<FlashcardEntity>,
+        deepDives: List<DeepDiveCardEntity>
+    ) {
+        insertTrackedFile(trackedFile)
+        insertAllFlashcards(cards)
+        insertAllCards(deepDives)
+    }
 
     @Query("DELETE FROM tracked_files")
     suspend fun clearTrackedFiles()

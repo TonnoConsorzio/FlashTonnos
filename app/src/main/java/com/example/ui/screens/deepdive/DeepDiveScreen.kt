@@ -296,16 +296,16 @@ fun DeepDivePageItem(
                         .padding(bottom = 20.dp)
                 )
 
-                // Body text styled with modern clarity and generous line height
-                Text(
+                // Body text styled with modern clarity, formatted markdown, and generous line height
+                com.example.ui.screens.study.FormattedMarkdownText(
                     text = card.body,
                     style = MaterialTheme.typography.titleMedium.copy(
                         fontSize = 18.sp,
                         lineHeight = 28.sp,
                         fontWeight = FontWeight.Medium,
-                        textAlign = TextAlign.Start,
-                        color = MaterialTheme.colorScheme.onSurface
+                        textAlign = TextAlign.Start
                     ),
+                    color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.fillMaxWidth()
                 )
             }

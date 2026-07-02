@@ -12,6 +12,7 @@ import com.example.data.local.FlashcardMapper
 import com.example.data.preferences.AppPreferences
 import com.example.domain.models.Flashcard
 import com.example.domain.models.DeepDiveCard
+import com.example.domain.models.CardIndexEntry
 import com.example.domain.models.DeepDiveInteraction
 import com.example.data.local.DeepDiveMapper
 import com.squareup.moshi.Moshi
@@ -66,12 +67,19 @@ class FlashcardRepository(
         }
     }
 
+    fun setGenerating(generating: Boolean) {
+        _isGenerating.value = generating
+    }
+
     fun startAutoGenerationBackground(onCompleted: () -> Unit = {}) {
-        if (_isGenerating.value) return
-        generationJob = repositoryScope.launch {
-            runAutoGeneration()
-            onCompleted()
-        }
+        val workRequest = androidx.work.OneTimeWorkRequestBuilder<com.example.data.worker.AutoGenerationWorker>()
+            .build()
+        androidx.work.WorkManager.getInstance(context).enqueueUniqueWork(
+            "auto_generation",
+            androidx.work.ExistingWorkPolicy.KEEP,
+            workRequest
+        )
+        onCompleted()
     }
 
     fun cancelGeneration() {
@@ -352,6 +360,59 @@ class FlashcardRepository(
         saveStatsToGithub()
     }
 
+    suspend fun deleteCardById(id: String) {
+        cardDao.deleteCardById(id)
+        deepDiveDao.deleteCardById(id)
+        repositoryScope.launch {
+            deleteCardFromIndex(id)
+        }
+    }
+
+    suspend fun deleteCardFromIndex(id: String) {
+        try {
+            val owner = appPreferences.githubOwnerFlow.first()
+            val repo = appPreferences.githubRepoFlow.first()
+            val branch = appPreferences.githubBranchFlow.first()
+            val token = "Bearer ${appPreferences.getGithubPat()}"
+            if (owner.isBlank() || repo.isBlank() || token.isBlank()) return
+
+            val path = "FlashTonnos/cards_index.json"
+            
+            val currentContentResponse = try {
+                githubApi.getContent(token, owner, repo, path, branch)
+            } catch (e: Exception) {
+                null
+            } ?: return
+
+            val base64Content = currentContentResponse.content?.replace("\n", "") ?: ""
+            val decodedJson = String(Base64.decode(base64Content, Base64.DEFAULT))
+            val type = Types.newParameterizedType(List::class.java, CardIndexEntry::class.java)
+            val adapter = moshi.adapter<List<CardIndexEntry>>(type)
+            val currentEntries = try {
+                adapter.fromJson(decodedJson) ?: emptyList()
+            } catch (e: Exception) {
+                emptyList()
+            }
+
+            val updated = currentEntries.filter { it.id != id }
+
+            val newContentJson = adapter.toJson(updated)
+            val newContentBase64 = Base64.encodeToString(newContentJson.toByteArray(), Base64.NO_WRAP)
+
+            githubApi.putContent(
+                token, owner, repo, path,
+                GithubPutRequest(
+                    message = "FlashTonnos: delete card $id",
+                    content = newContentBase64,
+                    sha = currentContentResponse.sha,
+                    branch = branch
+                )
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     suspend fun insertAllCards(cards: List<Flashcard>) {
         cardDao.insertAll(cards.map { FlashcardMapper.toEntity(it) })
     }
@@ -442,6 +503,92 @@ class FlashcardRepository(
                     message = "Update tracked files list",
                     content = contentBase64,
                     sha = existingSha,
+                    branch = branch
+                )
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    suspend fun ensureFlashTonnosFolderExists() {
+        try {
+            val owner = appPreferences.githubOwnerFlow.first()
+            val repo = appPreferences.githubRepoFlow.first()
+            val branch = appPreferences.githubBranchFlow.first()
+            val token = "Bearer ${appPreferences.getGithubPat()}"
+            if (owner.isBlank() || repo.isBlank() || token.isBlank()) return
+
+            val exists = try {
+                githubApi.getContent(token, owner, repo, "FlashTonnos/.keep", branch)
+                true
+            } catch (e: Exception) {
+                false
+            }
+
+            if (!exists) {
+                githubApi.putContent(
+                    token, owner, repo, "FlashTonnos/.keep",
+                    GithubPutRequest(
+                        message = "FlashTonnos: initialize folder structure",
+                        content = Base64.encodeToString("".toByteArray(), Base64.NO_WRAP),
+                        sha = null,
+                        branch = branch
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    suspend fun updateCardsIndex(newCards: List<CardIndexEntry>) {
+        try {
+            val owner = appPreferences.githubOwnerFlow.first()
+            val repo = appPreferences.githubRepoFlow.first()
+            val branch = appPreferences.githubBranchFlow.first()
+            val token = "Bearer ${appPreferences.getGithubPat()}"
+            if (owner.isBlank() || repo.isBlank() || token.isBlank()) return
+
+            val path = "FlashTonnos/cards_index.json"
+            
+            // 1. Leggi indice attuale (e il suo SHA)
+            val currentContentResponse = try {
+                githubApi.getContent(token, owner, repo, path, branch)
+            } catch (e: Exception) {
+                null
+            }
+
+            val currentEntries = if (currentContentResponse != null) {
+                val base64Content = currentContentResponse.content?.replace("\n", "") ?: ""
+                val decodedJson = String(Base64.decode(base64Content, Base64.DEFAULT))
+                val type = Types.newParameterizedType(List::class.java, CardIndexEntry::class.java)
+                val adapter = moshi.adapter<List<CardIndexEntry>>(type)
+                try {
+                    adapter.fromJson(decodedJson) ?: emptyList()
+                } catch (e: Exception) {
+                    emptyList()
+                }
+            } else {
+                emptyList()
+            }
+
+            // 2. Aggiungi le nuove entry (evita duplicati per ID)
+            val existingIds = currentEntries.map { it.id }.toSet()
+            val merged = currentEntries + newCards.filter { it.id !in existingIds }
+
+            // 3. Scrivi con lo SHA corretto
+            val type = Types.newParameterizedType(List::class.java, CardIndexEntry::class.java)
+            val adapter = moshi.adapter<List<CardIndexEntry>>(type)
+            val newContentJson = adapter.toJson(merged)
+            val newContentBase64 = Base64.encodeToString(newContentJson.toByteArray(), Base64.NO_WRAP)
+
+            githubApi.putContent(
+                token, owner, repo, path,
+                GithubPutRequest(
+                    message = "FlashTonnos: update index (+${newCards.size} cards)",
+                    content = newContentBase64,
+                    sha = currentContentResponse?.sha,
                     branch = branch
                 )
             )

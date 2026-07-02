@@ -38,6 +38,19 @@ class DeepDiveViewModel(
     init {
         loadFeed()
         loadAvailableTopics()
+        
+        // Dynamically sync when database is cleared or updated
+        viewModelScope.launch {
+            appContainer.flashcardRepository.getAllDeepDiveCardsFlow().collect { cards ->
+                if (cards.isEmpty()) {
+                    _feedState.value = emptyList()
+                    _availableTopics.value = emptyList()
+                } else {
+                    loadFeed()
+                    loadAvailableTopics()
+                }
+            }
+        }
     }
 
     fun loadFeed() {

@@ -11,14 +11,19 @@ import com.example.data.local.DeepDiveDao
 import com.example.data.local.DeepDiveMapper
 import com.example.data.local.FlashcardMapper
 import com.example.data.local.entities.TrackedFileEntity
+import com.example.data.local.entities.FlashcardEntity
+import com.example.data.local.entities.DeepDiveCardEntity
 import com.example.data.preferences.AppPreferences
 import com.example.domain.models.DeepDiveCard
 import com.example.domain.models.Flashcard
+import com.example.domain.models.CardIndexEntry
 import com.example.domain.repository.FlashcardRepository
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.util.UUID
 
@@ -81,6 +86,13 @@ class AutoGenerationUseCase(
                 else "Processing file ${index + 1}/${filesToProcess.size}: ${file.path}..."
             )
 
+            val flashcardsToSave = mutableListOf<com.example.data.local.entities.FlashcardEntity>()
+            val deepDivesToSave = mutableListOf<com.example.data.local.entities.DeepDiveCardEntity>()
+            val indexEntriesToSave = mutableListOf<com.example.domain.models.CardIndexEntry>()
+
+            var openRouterErrorCount = 0
+            var insufficientContent = false
+
             try {
                 // Elimina le vecchie card locali di questo file prima di rigenerarle/aggiornarle
                 repository.deleteLocalCardsBySourceFile(file.path)
@@ -93,6 +105,16 @@ class AutoGenerationUseCase(
                 // 2. Esegui chunking (suddivisione per heading)
                 val chunks = chunkMarkdown(markdownText)
                 
+                var totalWordCount = 0
+                for (chunk in chunks) {
+                    val wc = chunk.split("\\s+".toRegex()).filter { it.isNotBlank() }.size
+                    totalWordCount += wc
+                }
+
+                if (totalWordCount < 40) {
+                    insufficientContent = true
+                }
+
                 onProgress(
                     if (lang == "it") "File suddiviso in ${chunks.size} sezioni di studio. Generazione in corso..."
                     else "File split into ${chunks.size} study sections. Starting generation..."
@@ -144,17 +166,32 @@ class AutoGenerationUseCase(
                                     topic = finalTopic,
                                     subtopic = finalSubtopic
                                 )
-                            }
+                            }.filter { validateCard(it) }
 
-                            // Salva in Room
-                            repository.insertAllCards(finalCards)
-                            
-                            // Carica su GitHub
-                            for (card in finalCards) {
-                                saveFlashcardToGithub(token, owner, repo, branch, cardsFolder, card)
+                            if (finalCards.isNotEmpty()) {
+                                flashcardsToSave.addAll(finalCards.map { FlashcardMapper.toEntity(it) })
+                                indexEntriesToSave.addAll(finalCards.map {
+                                    CardIndexEntry(
+                                        id = it.id,
+                                        type = it.type,
+                                        question = it.question,
+                                        topic = it.topic,
+                                        subtopic = it.subtopic
+                                    )
+                                })
+
+                                // Carica su GitHub in parallelo
+                                coroutineScope {
+                                    finalCards.forEach { card ->
+                                        launch {
+                                            saveFlashcardToGithub(token, owner, repo, branch, cardsFolder, card)
+                                        }
+                                    }
+                                }
                             }
                         } catch (e: Exception) {
                             e.printStackTrace()
+                            openRouterErrorCount++
                         }
                     }
 
@@ -187,43 +224,85 @@ class AutoGenerationUseCase(
                                     topic = finalTopic,
                                     subtopic = finalSubtopic
                                 )
-                            }
+                            }.filter { validateDeepDive(it) }
 
-                            // Salva in Room
-                            deepDiveDao.insertAllCards(finalDeepDives.map { DeepDiveMapper.toEntity(it) })
+                            if (finalDeepDives.isNotEmpty()) {
+                                deepDivesToSave.addAll(finalDeepDives.map { DeepDiveMapper.toEntity(it) })
+                                indexEntriesToSave.addAll(finalDeepDives.map {
+                                    CardIndexEntry(
+                                        id = it.id,
+                                        type = "deep_dive",
+                                        question = it.hook,
+                                        topic = it.topic,
+                                        subtopic = it.subtopic
+                                    )
+                                })
 
-                            // Carica su GitHub
-                            for (dd in finalDeepDives) {
-                                saveDeepDiveToGithub(token, owner, repo, branch, cardsFolder, dd)
+                                // Carica su GitHub in parallelo
+                                coroutineScope {
+                                    finalDeepDives.forEach { dd ->
+                                        launch {
+                                            saveDeepDiveToGithub(token, owner, repo, branch, cardsFolder, dd)
+                                        }
+                                    }
+                                }
                             }
                         } catch (e: Exception) {
                             e.printStackTrace()
+                            openRouterErrorCount++
                         }
                     }
                 }
 
-                // 3. Aggiorna tracciamento file completato
-                deepDiveDao.insertTrackedFile(
-                    TrackedFileEntity(
+                if (insufficientContent) {
+                    onProgress(
+                        if (lang == "it") "⚠ ${file.path} — contenuto insufficiente, saltato"
+                        else "⚠ ${file.path} — insufficient content, skipped"
+                    )
+                    kotlinx.coroutines.delay(2000)
+                    continue
+                }
+
+                if (openRouterErrorCount > 0 && flashcardsToSave.isEmpty() && deepDivesToSave.isEmpty()) {
+                    onProgress(
+                        if (lang == "it") "✗ ${file.path} — errore OpenRouter (retry 1/3)"
+                        else "✗ ${file.path} — OpenRouter error (retry 1/3)"
+                    )
+                    kotlinx.coroutines.delay(2000)
+                    continue
+                }
+
+                // 3. Salva in Room come singola transazione!
+                deepDiveDao.saveGenerationResult(
+                    trackedFile = TrackedFileEntity(
                         path = file.path,
                         lastSha = file.sha,
                         lastIndexedAt = System.currentTimeMillis()
-                    )
+                    ),
+                    cards = flashcardsToSave,
+                    deepDives = deepDivesToSave
                 )
                 
                 // Salva elenco file tracciati su GitHub
                 repository.saveTrackedFilesToGithub()
 
+                // Salva indice delle card su GitHub
+                if (indexEntriesToSave.isNotEmpty()) {
+                    repository.updateCardsIndex(indexEntriesToSave)
+                }
+
                 onProgress(
-                    if (lang == "it") "✓ File ${file.path} completato e tracciato correttamente!"
-                    else "✓ File ${file.path} successfully completed and tracked!"
+                    if (lang == "it") "✓ ${file.path} — ${flashcardsToSave.size} flashcard + ${deepDivesToSave.size} approfondimenti generati"
+                    else "✓ ${file.path} — ${flashcardsToSave.size} flashcards + ${deepDivesToSave.size} deep dives generated"
                 )
+                kotlinx.coroutines.delay(3000)
             } catch (e: Exception) {
                 e.printStackTrace()
                 onProgress(
                     if (lang == "it") "❌ Errore durante l'elaborazione di ${file.path}: ${e.localizedMessage}"
                     else "❌ Error processing ${file.path}: ${e.localizedMessage}"
                 )
+                kotlinx.coroutines.delay(3000)
             }
         }
     }
@@ -305,6 +384,10 @@ class AutoGenerationUseCase(
             
             $langInstruction
 
+            LIMITI OBBLIGATORI DI LUNGHEZZA — RISPETTALI O LA CARD VERRÀ SCARTATA:
+            - question (true_false / multiple_choice): massimo 25 parole. Se non riesci a formulare la domanda in 25 parole, semplificala. Mai superare questo limite.
+            - explanation: massimo 60 parole. Vai dritto al punto: perché è corretta, nient'altro.
+
             Analizza il seguente testo ed estrai esattamente $amount flashcard strutturate.
             $typeConstraint
 
@@ -312,10 +395,10 @@ class AutoGenerationUseCase(
             [
               {
                 "type": "true_false" o "multiple_choice",
-                "question": "Domanda o affermazione in italiano",
+                "question": "Domanda o affermazione in italiano (max 25 parole)",
                 "correct_answer": "La risposta corretta",
                 "options": ["Opzione A", "Opzione B", "Opzione C", "Opzione D"],
-                "explanation": "Spiegazione sintetica del perché sia corretta",
+                "explanation": "Spiegazione sintetica del perché sia corretta (max 60 parole)",
                 "difficulty": "easy" | "medium" | "hard",
                 "source_excerpt": "Breve frase estratta dal testo correlata",
                 "topic": "Concetto macro principale (es. Matematica, Reti)",
@@ -347,12 +430,16 @@ class AutoGenerationUseCase(
             
             $langInstruction
 
+            LIMITI OBBLIGATORI DI LUNGHEZZA — RISPETTALI O LA CARD VERRÀ SCARTATA:
+            - deep_dive hook: massimo 10 parole. Deve sembrare un titolo da notifica push.
+            - deep_dive body: massimo 120 parole. Tre paragrafi brevi, stop.
+
             Analizza il seguente testo ed estrai esattamente $amount card di Approfondimento (deep_dive).
             Le card devono essere informative, d'impatto, adatte ad essere lette rapidamente in un feed a scorrimento.
 
             Ogni card deve avere:
-            - "hook": una frase di aggancio iniziale d'effetto, estremamente concisa (massimo 60 caratteri). Deve incuriosire!
-            - "body": un testo di approfondimento fluido e coinvolgente (tra 80 e 180 parole). Deve spiegare un concetto interessante in modo cristallino.
+            - "hook": una frase di aggancio iniziale d'effetto, estremamente concisa (massimo 10 parole). Deve incuriosire!
+            - "body": un testo di approfondimento fluido e coinvolgente (massimo 120 parole). Deve spiegare un concetto interessante in modo cristallino.
             - "topic": argomento macro principale (es. Algoritmi, Storia, Biologia).
             - "subtopic": sotto-argomento specifico.
             - "tags": una lista di 1-3 parole chiave corte.
@@ -360,8 +447,8 @@ class AutoGenerationUseCase(
             Restituisci un array JSON di oggetti strutturati esattamente così:
             [
               {
-                "hook": "string (max 60 chars)",
-                "body": "string (80-180 words)",
+                "hook": "string (max 10 parole)",
+                "body": "string (max 120 parole)",
                 "topic": "string",
                 "subtopic": "string",
                 "tags": ["tag1", "tag2"]
@@ -489,16 +576,11 @@ class AutoGenerationUseCase(
     ) {
         try {
             val path = "$cardsFolder/${card.id}.json"
-            val existingSha = try {
-                githubApi.getContent(token, owner, repo, path, branch).sha
-            } catch (e: Exception) {
-                null
-            }
             val contentJson = cardAdapter.toJson(card)
             val contentBase64 = Base64.encodeToString(contentJson.toByteArray(), Base64.NO_WRAP)
             githubApi.putContent(
                 token, owner, repo, path,
-                GithubPutRequest("Auto-generated QA flashcard ${card.id}", contentBase64, existingSha, branch)
+                GithubPutRequest("Auto-generated QA flashcard ${card.id}", contentBase64, null, branch)
             )
         } catch (e: Exception) {
             e.printStackTrace()
@@ -510,20 +592,27 @@ class AutoGenerationUseCase(
     ) {
         try {
             val path = "$cardsFolder/${dd.id}.json"
-            val existingSha = try {
-                githubApi.getContent(token, owner, repo, path, branch).sha
-            } catch (e: Exception) {
-                null
-            }
             val contentJson = deepDiveCardAdapter.toJson(dd)
             val contentBase64 = Base64.encodeToString(contentJson.toByteArray(), Base64.NO_WRAP)
             githubApi.putContent(
                 token, owner, repo, path,
-                GithubPutRequest("Auto-generated Deep Dive ${dd.id}", contentBase64, existingSha, branch)
+                GithubPutRequest("Auto-generated Deep Dive ${dd.id}", contentBase64, null, branch)
             )
         } catch (e: Exception) {
             e.printStackTrace()
         }
+    }
+
+    private fun validateCard(card: Flashcard): Boolean {
+        val questionWords = card.question.split("\\s+".toRegex()).filter { it.isNotBlank() }.size
+        val explanationWords = card.explanation.split("\\s+".toRegex()).filter { it.isNotBlank() }.size
+        return questionWords <= 30 && explanationWords <= 70
+    }
+
+    private fun validateDeepDive(card: DeepDiveCard): Boolean {
+        val hookWords = card.hook.split("\\s+".toRegex()).filter { it.isNotBlank() }.size
+        val bodyWords = card.body.split("\\s+".toRegex()).filter { it.isNotBlank() }.size
+        return hookWords <= 12 && bodyWords <= 140
     }
 }
 
