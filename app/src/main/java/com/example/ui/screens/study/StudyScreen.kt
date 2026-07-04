@@ -811,47 +811,50 @@ fun StudyScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(vertical = 16.dp),
-                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Text(
-                                text = Loc.get("empty_deck_dashboard_msg", lang),
-                                style = MaterialTheme.typography.bodyMedium.copy(
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    textAlign = TextAlign.Center
-                                ),
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)
+                                text = if (lang == "it")
+                                    "Nessuna flashcard disponibile. Vai nella schermata Genera per creare le prime card dai tuoi appunti."
+                                else
+                                    "No flashcards available. Go to Generate to create your first cards from your notes.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(horizontal = 12.dp)
                             )
-                            
+
                             Button(
+                                onClick = { navController?.navigate("generate") },
+                                modifier = Modifier.fillMaxWidth().height(56.dp),
+                                shape = RoundedCornerShape(16.dp)
+                            ) {
+                                Icon(Icons.Default.AutoAwesome, contentDescription = null)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = if (lang == "it") "Vai a Genera" else "Go to Generate",
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                                )
+                            }
+
+                            OutlinedButton(
                                 onClick = {
                                     val hasCreds = viewModel.getGithubPat().isNotBlank()
                                     if (hasCreds) {
                                         viewModel.syncDeck()
-                                        Toast.makeText(context, Loc.get("sync_started_toast", lang), Toast.LENGTH_SHORT).show()
                                     } else {
                                         showInitDialog = true
                                     }
                                 },
-                                shape = RoundedCornerShape(16.dp),
-                                modifier = Modifier.fillMaxWidth().height(56.dp)
+                                modifier = Modifier.fillMaxWidth().height(52.dp),
+                                shape = RoundedCornerShape(16.dp)
                             ) {
                                 Icon(Icons.Default.CloudSync, contentDescription = null)
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    Loc.get("init_deck_btn", lang),
-                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                                 )
-                            }
-
-                            OutlinedButton(
-                                onClick = { showInitDialog = true },
-                                shape = RoundedCornerShape(16.dp),
-                                modifier = Modifier.fillMaxWidth().height(52.dp)
-                            ) {
-                                Icon(Icons.Default.CloudSync, contentDescription = null)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(Loc.get("configure_repository_btn", lang))
+                                    text = if (lang == "it") "Sincronizza da GitHub" else "Sync from GitHub"
+                                )
                             }
                         }
                     }

@@ -74,7 +74,7 @@ class FlashcardRepository(
     fun startAutoGenerationBackground(force: Boolean = false, onCompleted: () -> Unit = {}) {
         val workRequest = androidx.work.OneTimeWorkRequestBuilder<com.example.data.worker.AutoGenerationWorker>()
             .build()
-        val policy = if (force) androidx.work.ExistingWorkPolicy.REPLACE else androidx.work.ExistingWorkPolicy.KEEP
+        val policy = androidx.work.ExistingWorkPolicy.REPLACE
         androidx.work.WorkManager.getInstance(context).enqueueUniqueWork(
             "auto_generation",
             policy,
@@ -142,7 +142,9 @@ class FlashcardRepository(
                 _generationProgress.value = "Aggiornato"
             }
         } catch (e: Exception) {
-            _generationProgress.value = "Errore: ${e.localizedMessage}"
+            val errMsg = "Errore: ${e.localizedMessage ?: "Errore sconosciuto"}"
+            _generationProgress.value = errMsg
+            _generationResult.value = errMsg
             e.printStackTrace()
         } finally {
             _isGenerating.value = false
@@ -235,6 +237,7 @@ class FlashcardRepository(
                     "Found ${files.size} .md files. Starting generation of 5 flashcards for each..."
                 }
                 var totalGenerated = 0
+                val errorSummaries = mutableListOf<String>()
                 for ((index, file) in files.withIndex()) {
                     _generationProgress.value = if (lang == "it") {
                         "[File ${index + 1}/${files.size}] Elaborazione di: $file..."
@@ -252,12 +255,24 @@ class FlashcardRepository(
                         totalGenerated += count
                     } catch (e: Exception) {
                         e.printStackTrace()
+                        val errMsg = e.localizedMessage ?: "Errore"
+                        errorSummaries.add("${file.substringAfterLast("/")}: $errMsg")
+                        break
                     }
                 }
-                _generationResult.value = if (lang == "it") {
-                    "✓ Generazione massiva completata! Generate $totalGenerated nuove flashcard da ${files.size} file Markdown."
+                if (errorSummaries.isNotEmpty()) {
+                    val combinedErrors = errorSummaries.distinct().take(5).joinToString("\n")
+                    _generationResult.value = if (lang == "it") {
+                        "Generazione completata con errori OpenRouter:\n$combinedErrors\n(Totale nuove card generate: $totalGenerated)"
+                    } else {
+                        "Generation finished with OpenRouter errors:\n$combinedErrors\n(Total new cards generated: $totalGenerated)"
+                    }
                 } else {
-                    "✓ Massive generation completed! Generated $totalGenerated new flashcards from ${files.size} Markdown files."
+                    _generationResult.value = if (lang == "it") {
+                        "✓ Generazione massiva completata! Generate $totalGenerated nuove flashcard da ${files.size} file Markdown."
+                    } else {
+                        "✓ Massive generation completed! Generated $totalGenerated new flashcards from ${files.size} Markdown files."
+                    }
                 }
             } catch (e: Exception) {
                 _generationResult.value = if (lang == "it") {
@@ -961,8 +976,14 @@ class FlashcardRepository(
             return finalCards.size
         } catch (e: Exception) {
             e.printStackTrace()
-            onProgress("[$batchIndex/$totalBatches] Errore durante la generazione: ${e.localizedMessage}")
-            return 0
+            val errorMessage = if (e is retrofit2.HttpException) {
+                val body = try { e.response()?.errorBody()?.string() } catch (ignored: Exception) { null }
+                "HTTP ${e.code()}: ${e.message()} — ${body ?: ""}"
+            } else {
+                e.localizedMessage ?: "Errore sconosciuto"
+            }
+            onProgress("[$batchIndex/$totalBatches] Errore durante la generazione: $errorMessage")
+            throw Exception(errorMessage, e)
         }
     }
 
@@ -1268,12 +1289,9 @@ class FlashcardRepository(
         _generationResult.value = null
         generationJob = repositoryScope.launch {
             val lang = appPreferences.selectedLanguageFlow.first()
-            _generationProgress.value = if (lang == "it") "Eliminazione vecchi dati locali per $sourceFile..." else "Deleting old local data for $sourceFile..."
+            _generationProgress.value = if (lang == "it") "Avvio rigenerazione per $sourceFile..." else "Starting regeneration for $sourceFile..."
             try {
-                // 1. Delete local card data
-                deleteLocalCardsBySourceFile(sourceFile)
-                
-                // 2. Fetch file content and run generation
+                // Fetch file content and run generation
                 val owner = appPreferences.githubOwnerFlow.first()
                 val repo = appPreferences.githubRepoFlow.first()
                 val branch = appPreferences.githubBranchFlow.first()

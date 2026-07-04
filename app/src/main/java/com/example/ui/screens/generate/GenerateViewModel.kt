@@ -101,6 +101,10 @@ class GenerateViewModel(private val repository: FlashcardRepository) : ViewModel
         repository.cancelGeneration()
     }
 
+    fun clearGenerationResult() {
+        repository.setGenerationResult(null)
+    }
+
     fun selectFile(file: String?) {
         _selectedFile.value = file
     }
@@ -142,6 +146,45 @@ class GenerateViewModel(private val repository: FlashcardRepository) : ViewModel
 
     fun generateAllCardsMassively(type: String) {
         repository.startGeneratingAllCardsMassively(type)
+    }
+
+    fun inizializzaDeck() {
+        viewModelScope.launch {
+            repository.setGenerating(true)
+            repository.setGenerationResult(null)
+            try {
+                val files = repository.fetchMarkdownFilesFromConfiguredFolders()
+                if (files.isEmpty()) {
+                    repository.setGenerationResult(if (selectedLanguage.value == "it")
+                        "Nessun file .md trovato nelle cartelle configurate."
+                    else
+                        "No .md files found in configured folders."
+                    )
+                    return@launch
+                }
+                var totale = 0
+                for (file in files) {
+                    repository.setGenerationProgress(
+                        if (selectedLanguage.value == "it") "Genero da: $file"
+                        else "Generating from: $file"
+                    )
+                    val count = repository.generateCards(file, 5, "mixed") { progress ->
+                        repository.setGenerationProgress(progress)
+                    }
+                    totale += count
+                    repository.setGenerationProgress("✓ $file — $count card (totale: $totale)")
+                }
+                repository.setGenerationResult(if (selectedLanguage.value == "it")
+                    "✓ Completato: $totale card create da ${files.size} file"
+                else
+                    "✓ Done: $totale cards created from ${files.size} files"
+                )
+            } catch (e: Exception) {
+                repository.setGenerationResult("ERRORE: ${e::class.simpleName}: ${e.message}")
+            } finally {
+                repository.setGenerating(false)
+            }
+        }
     }
 
     class Factory(private val repository: FlashcardRepository) : ViewModelProvider.Factory {

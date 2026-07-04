@@ -28,7 +28,8 @@ class DetectChangedFilesUseCase(
         val token = "Bearer $rawToken"
 
         if (owner.isBlank() || repo.isBlank() || rawToken.isBlank()) {
-            return emptyList()
+            android.util.Log.e("FlashTonnos", "DetectChangedFilesUseCase: credenziali mancanti — owner='$owner' repo='$repo' token_blank=${rawToken.isBlank()}")
+            throw Exception("Credenziali GitHub non configurate. Vai in Impostazioni e inserisci Token PAT, Owner e Repository.")
         }
 
         return try {
@@ -48,6 +49,15 @@ class DetectChangedFilesUseCase(
                     val cleanFolder = folder.trim('/')
                     entry.path.startsWith("$cleanFolder/", ignoreCase = true) || entry.path.equals(cleanFolder, ignoreCase = true)
                 })
+            }
+
+            // Se non ci sono file tracciati in Room, forza la generazione di tutti i file
+            val trackedCount = deepDiveDao.getAllTrackedFiles().size
+            if (trackedCount == 0) {
+                android.util.Log.d("FlashTonnos", "Nessun file tracciato in locale — primo avvio, processo tutti i ${mdEntries.size} file")
+                return interleaveFilesToProcess(
+                    mdEntries.map { FileToProcess(it.path, it.sha) }
+                )
             }
 
             // 4. Confronta lo SHA con il database locale

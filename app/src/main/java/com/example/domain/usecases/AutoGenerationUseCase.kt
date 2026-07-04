@@ -72,6 +72,8 @@ class AutoGenerationUseCase(
         val openRouterToken = "Bearer ${appPreferences.getOpenRouterKey()}"
         val model = appPreferences.openRouterModelFlow.first()
         
+        val errorSummaries = mutableListOf<String>()
+        
         val densityQA = appPreferences.densityQAFlow.first()
         val densityDD = appPreferences.densityDeepDiveFlow.first()
         val tfEnabled = appPreferences.generateTfEnabledFlow.first()
@@ -94,9 +96,6 @@ class AutoGenerationUseCase(
             var insufficientContent = false
 
             try {
-                // Elimina le vecchie card locali di questo file prima di rigenerarle/aggiornarle
-                repository.deleteLocalCardsBySourceFile(file.path)
-
                 // 1. Scarica il contenuto del file
                 val fileContentResponse = githubApi.getContent(token, owner, repo, file.path, branch)
                 val base64Content = fileContentResponse.content?.replace("\n", "") ?: continue
@@ -198,7 +197,20 @@ class AutoGenerationUseCase(
                             }
                         } catch (e: Exception) {
                             e.printStackTrace()
-                            openRouterErrorCount++
+                            val errorMessage = if (e is retrofit2.HttpException) {
+                                val body = try { e.response()?.errorBody()?.string() } catch (ignored: Exception) { null }
+                                "HTTP ${e.code()}: ${e.message()} — ${body ?: ""}"
+                            } else {
+                                e.localizedMessage ?: "Errore sconosciuto"
+                            }
+                            val errorDetail = if (lang == "it") {
+                                "[Sezione ${chunkIdx + 1}/${chunks.size}] Errore OpenRouter: $errorMessage"
+                            } else {
+                                "[Section ${chunkIdx + 1}/${chunks.size}] OpenRouter Error: $errorMessage"
+                            }
+                            onProgress(errorDetail)
+                            errorSummaries.add("${file.path.substringAfterLast("/")} $errorDetail")
+                            throw Exception(errorDetail, e)
                         }
                     }
 
@@ -263,7 +275,20 @@ class AutoGenerationUseCase(
                             }
                         } catch (e: Exception) {
                             e.printStackTrace()
-                            openRouterErrorCount++
+                            val errorMessage = if (e is retrofit2.HttpException) {
+                                val body = try { e.response()?.errorBody()?.string() } catch (ignored: Exception) { null }
+                                "HTTP ${e.code()}: ${e.message()} — ${body ?: ""}"
+                            } else {
+                                e.localizedMessage ?: "Errore sconosciuto"
+                            }
+                            val errorDetail = if (lang == "it") {
+                                "[Sezione ${chunkIdx + 1}/${chunks.size}] Errore OpenRouter (Deep Dive): $errorMessage"
+                            } else {
+                                "[Section ${chunkIdx + 1}/${chunks.size}] OpenRouter Error (Deep Dive): $errorMessage"
+                            }
+                            onProgress(errorDetail)
+                            errorSummaries.add("${file.path.substringAfterLast("/")} $errorDetail")
+                            throw Exception(errorDetail, e)
                         }
                     }
                 }
@@ -279,12 +304,15 @@ class AutoGenerationUseCase(
 
                 if (openRouterErrorCount > 0 && flashcardsToSave.isEmpty() && deepDivesToSave.isEmpty()) {
                     onProgress(
-                        if (lang == "it") "✗ ${file.path} — errore OpenRouter (retry 1/3)"
-                        else "✗ ${file.path} — OpenRouter error (retry 1/3)"
+                        if (lang == "it") "✗ ${file.path} — Generazione fallita a causa di errori OpenRouter"
+                        else "✗ ${file.path} — Generation failed due to OpenRouter errors"
                     )
                     kotlinx.coroutines.delay(2000)
                     continue
                 }
+
+                // 2.9 Delete existing local cards for this file to prevent duplicates
+                repository.deleteLocalCardsBySourceFile(file.path)
 
                 // 3. Salva in Room come singola transazione!
                 deepDiveDao.saveGenerationResult(
@@ -312,12 +340,29 @@ class AutoGenerationUseCase(
                 kotlinx.coroutines.delay(3000)
             } catch (e: Exception) {
                 e.printStackTrace()
+                val errMsg = e.localizedMessage ?: "Errore generico"
                 onProgress(
-                    if (lang == "it") "❌ Errore durante l'elaborazione di ${file.path}: ${e.localizedMessage}"
-                    else "❌ Error processing ${file.path}: ${e.localizedMessage}"
+                    if (lang == "it") "❌ Errore durante l'elaborazione di ${file.path}: $errMsg"
+                    else "❌ Error processing ${file.path}: $errMsg"
                 )
+                errorSummaries.add("${file.path.substringAfterLast("/")}: $errMsg")
                 kotlinx.coroutines.delay(3000)
             }
+        }
+        
+        if (errorSummaries.isNotEmpty()) {
+            val combinedErrors = errorSummaries.distinct().take(5).joinToString("\n")
+            val summaryText = if (lang == "it") {
+                "Generazione completata con errori OpenRouter:\n$combinedErrors"
+            } else {
+                "Generation finished with OpenRouter errors:\n$combinedErrors"
+            }
+            repository.setGenerationResult(summaryText)
+        } else {
+            repository.setGenerationResult(
+                if (lang == "it") "Generazione completata con successo!"
+                else "Generation completed successfully!"
+            )
         }
     }
 
@@ -371,108 +416,61 @@ class AutoGenerationUseCase(
 
     private fun buildQAPrompt(chunk: String, amount: Int, types: List<String>, lang: String): String {
         val langInstruction = if (lang == "it") {
-            """
-            ATTENZIONE REQUISITO FONDAMENTALE DI LINGUA:
-            L'utente ha selezionato la lingua ITALIANA.
-            TUTTI i testi generati, inclusi i campi "question", "correct_answer", "options", "explanation", "topic" e "subtopic" DEVONO essere scritti rigorosamente in lingua ITALIANA.
-            È ASSOLUTAMENTE VIETATO usare l'inglese o mischiare inglese e italiano nelle risposte o spiegazioni. Tutto deve essere in italiano fluido, naturale e corretto.
-            Per le card di tipo "true_false", l'array "options" deve contenere esattamente ["Vero", "Falso"] e il campo "correct_answer" deve essere esattamente uno di questi due valori.
-            """.trimIndent()
+            "RISPONDI IN ITALIANO (question, correct_answer, options, explanation, topic, subtopic). true_false options: ['Vero', 'Falso']."
         } else {
-            """
-            LANGUAGE REQUIREMENT:
-            The user has selected the ENGLISH language.
-            The question, all options, correct answer, explanation, and tags MUST be strictly in ENGLISH.
-            For "true_false", the "options" must be exactly ["True", "False"] and "correct_answer" must be one of them.
-            """.trimIndent()
+            "ANSWER IN ENGLISH. true_false options: ['True', 'False']."
         }
-
-        val typeConstraint = if (types.size == 1) {
-            "Genera ESCLUSIVAMENTE flashcard di tipo \"${types[0]}\"."
-        } else {
-            "Genera un mix bilanciato di tipo \"true_false\" e \"multiple_choice\"."
-        }
+        val typeConstraint = if (types.size == 1) "Genera solo: ${types[0]}" else "Genera mix true_false e multiple_choice"
 
         return """
-            Sei un creatore di flashcard didattiche altamente professionali.
-            
             $langInstruction
-
-            LIMITI OBBLIGATORI DI LUNGHEZZA — RISPETTALI O LA CARD VERRÀ SCARTATA:
-            - question (true_false / multiple_choice): massimo 25 parole. Se non riesci a formulare la domanda in 25 parole, semplificala. Mai superare questo limite.
-            - explanation: massimo 60 parole. Vai dritto al punto: perché è corretta, nient'altro.
-
-            Analizza il seguente testo ed estrai esattamente $amount flashcard strutturate.
+            Crea $amount flashcards JSON dal testo:
             $typeConstraint
-
-            Restituisci un array JSON di oggetti strutturati esattamente così:
+            Max parole: question 20, explanation 40.
+            
+            JSON format:
             [
               {
                 "type": "true_false" o "multiple_choice",
-                "question": "Domanda o affermazione in italiano (max 25 parole)",
-                "correct_answer": "La risposta corretta",
+                "question": "Domanda corta",
+                "correct_answer": "Risposta",
                 "options": ["Opzione A", "Opzione B", "Opzione C", "Opzione D"],
-                "explanation": "Spiegazione sintetica del perché sia corretta (max 60 parole)",
-                "difficulty": "easy" | "medium" | "hard",
-                "source_excerpt": "Breve frase estratta dal testo correlata",
-                "topic": "Concetto macro principale (es. Matematica, Reti)",
-                "subtopic": "Sotto-argomento specifico (es. Derivate, IP)"
+                "explanation": "Spiegazione brevissima",
+                "difficulty": "easy"|"medium"|"hard",
+                "source_excerpt": "Breve estratto",
+                "topic": "Argomento macro",
+                "subtopic": "Sotto-argomento"
               }
             ]
+            Solo JSON valido, no markdown o commenti.
 
-            TESTO SORGENTE:
+            TESTO:
             $chunk
-
-            Rispondi SOLO con il JSON valido. Nessun testo introduttivo o blocchi markdown di formattazione.
         """.trimIndent()
     }
 
     private fun buildDeepDivePrompt(chunk: String, amount: Int, lang: String): String {
-        val langInstruction = if (lang == "it") {
-            """
-            ATTENZIONE REQUISITO FONDAMENTALE DI LINGUA:
-            Scrivi rigorosamente ed esclusivamente in lingua ITALIANA.
-            Tutti i testi del JSON, inclusi "hook", "body", "topic" e "subtopic", devono essere scritti in italiano scorrevole, naturale e privo di errori.
-            Non usare assolutamente l'inglese, eccetto per i termini tecnici inevitabili.
-            """.trimIndent()
-        } else {
-            "Write strictly in ENGLISH. All texts must be natural, fluent, and correct."
-        }
+        val langInstruction = if (lang == "it") "RISPONDI IN ITALIANO (hook, body, topic, subtopic)." else "ANSWER IN ENGLISH."
 
         return """
-            Sei un creatore di pillole educative per un feed verticale stile TikTok.
-            
             $langInstruction
-
-            LIMITI OBBLIGATORI DI LUNGHEZZA — RISPETTALI O LA CARD VERRÀ SCARTATA:
-            - deep_dive hook: massimo 10 parole. Deve sembrare un titolo da notifica push.
-            - deep_dive body: massimo 120 parole. Tre paragrafi brevi, stop.
-
-            Analizza il seguente testo ed estrai esattamente $amount card di Approfondimento (deep_dive).
-            Le card devono essere informative, d'impatto, adatte ad essere lette rapidamente in un feed a scorrimento.
-
-            Ogni card deve avere:
-            - "hook": una frase di aggancio iniziale d'effetto, estremamente concisa (massimo 10 parole). Deve incuriosire!
-            - "body": un testo di approfondimento fluido e coinvolgente (massimo 120 parole). Deve spiegare un concetto interessante in modo cristallino.
-            - "topic": argomento macro principale (es. Algoritmi, Storia, Biologia).
-            - "subtopic": sotto-argomento specifico.
-            - "tags": una lista di 1-3 parole chiave corte.
-
-            Restituisci un array JSON di oggetti strutturati esattamente così:
+            Crea $amount card Deep Dive dal testo.
+            Max parole: hook 8 (titolo push), body 80 (spiegazione corta).
+            
+            JSON format:
             [
               {
-                "hook": "string (max 10 parole)",
-                "body": "string (max 120 parole)",
-                "topic": "string",
-                "subtopic": "string",
+                "hook": "Aggancio corto",
+                "body": "Spiegazione sintetica",
+                "topic": "Macro argomento",
+                "subtopic": "Sotto-argomento",
                 "tags": ["tag1", "tag2"]
               }
             ]
+            Solo JSON valido, no markdown o commenti.
 
-            TESTO SORGENTE:
+            TESTO:
             $chunk
-
-            Rispondi SOLO con il JSON valido. Nessun testo introduttivo o blocchi markdown di formattazione.
         """.trimIndent()
     }
 

@@ -99,6 +99,37 @@ fun GenerateScreen(
                 .background(MaterialTheme.colorScheme.background)
                 .padding(horizontal = 16.dp)
         ) {
+            // 0. BOTTONE INIZIALIZZA DECK (SEMPRE IN CIMA E VISIBILE)
+            Button(
+                onClick = { viewModel.inizializzaDeck() },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp)
+                    .height(56.dp)
+                    .testTag("initialize_deck_button"),
+                enabled = !isGenerating,
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                )
+            ) {
+                Icon(
+                    imageVector = Icons.Default.AutoAwesome,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = if (isGenerating) {
+                        if (lang == "it") "Generazione in corso..." else "Generating..."
+                    } else {
+                        if (lang == "it") "INIZIALIZZA DECK" else "INITIALIZE DECK"
+                    },
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                )
+            }
+
             // 1. STATO GENERAZIONE CARD
             Card(
                 modifier = Modifier
@@ -186,6 +217,130 @@ fun GenerateScreen(
                                 MaterialTheme.colorScheme.onSurface
                             }
                         )
+                    }
+                }
+            }
+
+            // ESITO DELLA GENERAZIONE (SE DISPONIBILE)
+            AnimatedVisibility(visible = generationResult != null) {
+                generationResult?.let { resultText ->
+                    val context = LocalContext.current
+                    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+                    
+                    val isError = resultText.startsWith("ERRORE", ignoreCase = true) || 
+                                  resultText.startsWith("Error", ignoreCase = true) || 
+                                  resultText.contains("fallita", ignoreCase = true) || 
+                                  resultText.contains("failed", ignoreCase = true) || 
+                                  resultText.contains("❌") || 
+                                  resultText.contains("✗")
+                    
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp)
+                            .testTag("generation_result_card"),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isError) {
+                                MaterialTheme.colorScheme.errorContainer
+                            } else {
+                                MaterialTheme.colorScheme.primaryContainer
+                            }
+                        ),
+                        border = androidx.compose.foundation.BorderStroke(
+                            width = 1.dp,
+                            color = if (isError) {
+                                MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
+                            } else {
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                            }
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isError) Icons.Default.ErrorOutline else Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = if (isError) {
+                                    MaterialTheme.colorScheme.onErrorContainer
+                                } else {
+                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                },
+                                modifier = Modifier.size(24.dp)
+                            )
+                            
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = if (isError) {
+                                        if (lang == "it") "Errore di Generazione" else "Generation Error"
+                                    } else {
+                                        if (lang == "it") "Generazione Completata" else "Generation Completed"
+                                    },
+                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = if (isError) {
+                                        MaterialTheme.colorScheme.onErrorContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.onPrimaryContainer
+                                    }
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                androidx.compose.foundation.text.selection.SelectionContainer {
+                                    Text(
+                                        text = resultText,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = if (isError) {
+                                            MaterialTheme.colorScheme.onErrorContainer
+                                        } else {
+                                            MaterialTheme.colorScheme.onPrimaryContainer
+                                        }
+                                    )
+                                }
+                            }
+                            
+                            IconButton(
+                                onClick = {
+                                    clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(resultText))
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        if (lang == "it") "Copiato negli appunti!" else "Copied to clipboard!",
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+                                },
+                                modifier = Modifier.size(28.dp).testTag("copy_generation_result")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ContentCopy,
+                                    contentDescription = if (lang == "it") "Copia" else "Copy",
+                                    tint = if (isError) {
+                                        MaterialTheme.colorScheme.onErrorContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.onPrimaryContainer
+                                    },
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+
+                            IconButton(
+                                onClick = { viewModel.clearGenerationResult() },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = if (lang == "it") "Chiudi" else "Close",
+                                    tint = if (isError) {
+                                        MaterialTheme.colorScheme.onErrorContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.onPrimaryContainer
+                                    },
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -364,29 +519,51 @@ fun GenerateScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
-                        .padding(24.dp),
+                        .padding(16.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        shape = RoundedCornerShape(24.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
+                        ),
+                        border = androidx.compose.foundation.BorderStroke(
+                            width = 1.dp,
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                        )
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.FolderOpen,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.outline,
-                            modifier = Modifier.size(48.dp)
-                        )
-                        Text(
-                            text = if (lang == "it") {
-                                "Nessun file tracciato nel database.\nAvvia la scansione per iniziare."
-                            } else {
-                                "No tracked files in database.\nScan to begin tracking."
-                            },
-                            style = MaterialTheme.typography.bodyMedium,
-                            textAlign = TextAlign.Center,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(64.dp)
+                            )
+                            Text(
+                                text = if (lang == "it") "Nessun file tracciato" else "No tracked files",
+                                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = if (lang == "it") {
+                                    "Il tuo database locale è completamente vuoto.\n\nPremi il pulsante \"INIZIALIZZA DECK\" in alto per scaricare automaticamente tutti i tuoi appunti .md dalle cartelle configurate e generare le flashcard istantaneamente!"
+                                } else {
+                                    "Your local database is completely empty.\n\nPress the \"INITIALIZE DECK\" button above to automatically download all your .md notes from the configured folders and generate flashcards instantly!"
+                                },
+                                style = MaterialTheme.typography.bodyMedium,
+                                textAlign = TextAlign.Center,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
             } else {

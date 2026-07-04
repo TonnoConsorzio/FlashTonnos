@@ -6,7 +6,8 @@ import retrofit2.http.POST
 
 data class OpenRouterRequest(
     val model: String,
-    val messages: List<Message>
+    val messages: List<Message>,
+    val max_tokens: Int? = 1200
 )
 
 data class Message(

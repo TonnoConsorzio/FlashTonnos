@@ -36,6 +36,7 @@ class AutoGenerationWorker(
 
         container.flashcardRepository.setGenerating(true)
         container.flashcardRepository.setGenerationProgress("Generazione avviata")
+        container.flashcardRepository.setGenerationResult(null) // clear previous
         return try {
             // Primo avvio / controllo cartella
             container.flashcardRepository.ensureFlashTonnosFolderExists()
@@ -49,12 +50,15 @@ class AutoGenerationWorker(
                 }
             } else {
                 container.flashcardRepository.setGenerationProgress("Tutti i file sono aggiornati!")
+                container.flashcardRepository.setGenerationResult("Tutti i file sono aggiornati! Nessun nuovo contenuto da generare.")
             }
             Result.success()
         } catch (e: Exception) {
             e.printStackTrace()
-            container.flashcardRepository.setGenerationProgress("Errore durante la generazione: ${e.localizedMessage}")
-            Result.retry()
+            val errMsg = "Errore durante la generazione: ${e.localizedMessage ?: "Errore sconosciuto"}"
+            container.flashcardRepository.setGenerationProgress(errMsg)
+            container.flashcardRepository.setGenerationResult(errMsg)
+            Result.failure()
         } finally {
             container.flashcardRepository.setGenerating(false)
         }

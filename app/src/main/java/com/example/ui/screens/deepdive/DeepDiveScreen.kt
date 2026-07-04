@@ -293,8 +293,9 @@ fun DeepDivePageItem(
                             color = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
                             shape = RoundedCornerShape(2.dp)
                         )
-                        .padding(bottom = 20.dp)
                 )
+
+                Spacer(modifier = Modifier.height(24.dp))
 
                 // Body text styled with modern clarity, formatted markdown, and generous line height
                 com.example.ui.screens.study.FormattedMarkdownText(
