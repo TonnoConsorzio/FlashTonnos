@@ -7,6 +7,14 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -39,6 +47,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontStyle
@@ -62,7 +71,7 @@ fun StudyScreen(
     appContainer: AppContainer,
     navController: androidx.navigation.NavHostController? = null,
     viewModel: StudyViewModel = viewModel(
-        factory = StudyViewModel.Factory(appContainer.flashcardRepository)
+        factory = StudyViewModel.Factory(appContainer.flashcardRepository, appContainer.syncRepository)
     )
 ) {
     val selectedLanguage by viewModel.selectedLanguage.collectAsState()
@@ -109,12 +118,10 @@ fun StudyScreen(
     var ownerInput by remember { mutableStateOf("") }
     var repoInput by remember { mutableStateOf("") }
     var branchInput by remember { mutableStateOf("main") }
-    var openRouterInput by remember { mutableStateOf("") }
 
     LaunchedEffect(showInitDialog) {
         if (showInitDialog) {
             patInput = viewModel.getGithubPat()
-            openRouterInput = viewModel.getOpenRouterKey()
             viewModel.getGithubOwner { ownerInput = it }
             viewModel.getGithubRepo { repoInput = it }
             viewModel.getGithubBranch { branchInput = it }
@@ -156,9 +163,9 @@ fun StudyScreen(
                     ) {
                         Text(
                             text = if (lang == "it") {
-                                "Inserisci le tue credenziali GitHub e OpenRouter per connettere il tuo archivio note e iniziare a studiare."
+                                "Inserisci le tue credenziali GitHub per connettere il tuo archivio note e iniziare a studiare."
                             } else {
-                                "Enter your GitHub and OpenRouter credentials to connect your notes archive and start studying."
+                                "Enter your GitHub credentials to connect your notes archive and start studying."
                             },
                             style = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
                         )
@@ -240,38 +247,19 @@ fun StudyScreen(
                             },
                             modifier = Modifier.fillMaxWidth()
                         )
-
-                        OutlinedTextField(
-                            value = openRouterInput,
-                            onValueChange = { openRouterInput = it },
-                            label = { Text(Loc.get("openrouter_key", lang)) },
-                            placeholder = { Text("sk-or-...") },
-                            singleLine = true,
-                            trailingIcon = {
-                                IconButton(onClick = { uriHandler.openUri("https://openrouter.ai/keys") }) {
-                                    Icon(
-                                        imageVector = Icons.Default.OpenInNew,
-                                        contentDescription = if (lang == "it") "Ottieni API Key" else "Get API Key",
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        )
                     }
                 },
                 confirmButton = {
                     Button(
                         onClick = {
-                            if (patInput.isBlank() || ownerInput.isBlank() || repoInput.isBlank() || openRouterInput.isBlank()) {
+                            if (patInput.isBlank() || ownerInput.isBlank() || repoInput.isBlank()) {
                                 Toast.makeText(context, Loc.get("toast_please_fill_fields", lang), Toast.LENGTH_SHORT).show()
                             } else {
                                 viewModel.updateCredentials(
                                     pat = patInput,
                                     owner = ownerInput,
                                     repo = repoInput,
-                                    branch = branchInput,
-                                    openRouterKey = openRouterInput
+                                    branch = branchInput
                                 )
                                 showInitDialog = false
                                 viewModel.syncDeck()
@@ -600,11 +588,119 @@ fun StudyScreen(
                             }
                         }
 
-                        // Mode 2: CLASSICA (Classic study mode - 1 Tap to start!)
+                        // Mode 2 & 3: VERO O FALSO & SCELTA MULTIPLA (Side-by-side Row)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            // Vero o Falso Card
+                            Card(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(115.dp)
+                                    .clickable {
+                                        coroutineScope.launch {
+                                            appContainer.appPreferences.updateStudyMode("true_false")
+                                            viewModel.setStudying(true)
+                                        }
+                                    },
+                                shape = RoundedCornerShape(20.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
+                                ),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    width = 1.dp,
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+                                )
+                            ) {
+                                Box(modifier = Modifier.fillMaxSize().padding(14.dp)) {
+                                    Text(
+                                        text = "↔️",
+                                        fontSize = 44.sp,
+                                        modifier = Modifier
+                                            .align(Alignment.BottomEnd)
+                                            .offset(x = 6.dp, y = 8.dp)
+                                            .alpha(0.15f)
+                                    )
+                                    Column(
+                                        modifier = Modifier.fillMaxSize(),
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        Text(
+                                            text = if (lang == "it") "Vero o Falso" else "True or False",
+                                            style = MaterialTheme.typography.titleMedium.copy(
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = if (lang == "it") "Swipe o tap rapido" else "Quick swipe or tap",
+                                            style = MaterialTheme.typography.bodySmall.copy(
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Scelta Multipla Card
+                            Card(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(115.dp)
+                                    .clickable {
+                                        coroutineScope.launch {
+                                            appContainer.appPreferences.updateStudyMode("multiple_choice")
+                                            viewModel.setStudying(true)
+                                        }
+                                    },
+                                shape = RoundedCornerShape(20.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
+                                ),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    width = 1.dp,
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+                                )
+                            ) {
+                                Box(modifier = Modifier.fillMaxSize().padding(14.dp)) {
+                                    Text(
+                                        text = "❓",
+                                        fontSize = 44.sp,
+                                        modifier = Modifier
+                                            .align(Alignment.BottomEnd)
+                                            .offset(x = 6.dp, y = 8.dp)
+                                            .alpha(0.15f)
+                                    )
+                                    Column(
+                                        modifier = Modifier.fillMaxSize(),
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        Text(
+                                            text = if (lang == "it") "Scelta Multipla" else "Multiple Choice",
+                                            style = MaterialTheme.typography.titleMedium.copy(
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = if (lang == "it") "Quattro opzioni" else "Four options",
+                                            style = MaterialTheme.typography.bodySmall.copy(
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // Mode 4: DOMANDE MISTE (Classic mode including both)
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(min = 130.dp)
+                                .heightIn(min = 120.dp)
                                 .wrapContentHeight()
                                 .clickable {
                                     coroutineScope.launch {
@@ -614,16 +710,16 @@ fun StudyScreen(
                                 },
                             shape = RoundedCornerShape(24.dp),
                             colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
+                                containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.35f)
                             ),
                             border = androidx.compose.foundation.BorderStroke(
                                 width = 1.dp,
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+                                color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.4f)
                             )
                         ) {
                             Box(modifier = Modifier.fillMaxSize()) {
                                 Text(
-                                    text = "🃏",
+                                    text = "🌪️",
                                     fontSize = 90.sp,
                                     modifier = Modifier
                                         .align(Alignment.BottomEnd)
@@ -637,75 +733,18 @@ fun StudyScreen(
                                     verticalArrangement = Arrangement.Center
                                 ) {
                                     Text(
-                                        text = if (lang == "it") "Classica" else "Classic Flashcards",
+                                        text = if (lang == "it") "Domande Miste" else "Mixed Questions",
                                         style = MaterialTheme.typography.titleLarge.copy(
                                             fontWeight = FontWeight.ExtraBold,
-                                            color = MaterialTheme.colorScheme.onSurface
+                                            color = MaterialTheme.colorScheme.onTertiaryContainer
                                         )
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = if (lang == "it") "Ripassa con le flashcard tradizionali per fissare i concetti" 
-                                               else "Review traditional double-sided cards to lock in key concepts",
+                                        text = if (lang == "it") "Esercitati con un mix dinamico di Vero/Falso e domande a scelta multipla insieme!" 
+                                               else "Practice with a dynamic mix of True/False and multiple choice questions combined!",
                                         style = MaterialTheme.typography.bodyMedium.copy(
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            fontWeight = FontWeight.Medium
-                                        ),
-                                        modifier = Modifier.fillMaxWidth(0.75f)
-                                    )
-                                }
-                            }
-                        }
-
-                        // Mode 3: SOLO DOMANDE (Questions study mode - 1 Tap to start!)
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = 130.dp)
-                                .wrapContentHeight()
-                                .clickable {
-                                    coroutineScope.launch {
-                                        appContainer.appPreferences.updateStudyMode("questions")
-                                        viewModel.setStudying(true)
-                                    }
-                                },
-                            shape = RoundedCornerShape(24.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
-                            ),
-                            border = androidx.compose.foundation.BorderStroke(
-                                width = 1.dp,
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
-                            )
-                        ) {
-                            Box(modifier = Modifier.fillMaxSize()) {
-                                Text(
-                                    text = "❓",
-                                    fontSize = 90.sp,
-                                    modifier = Modifier
-                                        .align(Alignment.BottomEnd)
-                                        .offset(x = 10.dp, y = 20.dp)
-                                        .alpha(0.12f)
-                                )
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(20.dp),
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    Text(
-                                        text = if (lang == "it") "Solo Domande" else "Questions Only",
-                                        style = MaterialTheme.typography.titleLarge.copy(
-                                            fontWeight = FontWeight.ExtraBold,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = if (lang == "it") "Mettiti alla prova con domande a scelta multipla e vero/falso" 
-                                               else "Test yourself with multiple choice and true/false questions",
-                                        style = MaterialTheme.typography.bodyMedium.copy(
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.8f),
                                             fontWeight = FontWeight.Medium
                                         ),
                                         modifier = Modifier.fillMaxWidth(0.75f)
@@ -721,9 +760,9 @@ fun StudyScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            // Generatore IA Card
+                            // Sincronizza Card
                             Card(
-                                onClick = { navController?.navigate("generate") },
+                                onClick = { navController?.navigate("sync") },
                                 modifier = Modifier
                                     .weight(1f)
                                     .heightIn(min = 100.dp)
@@ -736,7 +775,7 @@ fun StudyScreen(
                             ) {
                                 Box(modifier = Modifier.fillMaxSize().padding(14.dp)) {
                                     Text(
-                                        text = "✨",
+                                        text = "🔄",
                                         fontSize = 32.sp,
                                         modifier = Modifier
                                             .align(Alignment.BottomEnd)
@@ -748,14 +787,14 @@ fun StudyScreen(
                                         verticalArrangement = Arrangement.SpaceBetween
                                     ) {
                                         Icon(
-                                            imageVector = Icons.Default.AutoAwesome,
+                                            imageVector = Icons.Default.CloudSync,
                                             contentDescription = null,
                                             tint = MaterialTheme.colorScheme.secondary,
                                             modifier = Modifier.size(20.dp)
                                         )
                                         Spacer(modifier = Modifier.height(12.dp))
                                         Text(
-                                            text = if (lang == "it") "Generatore IA" else "AI Generator",
+                                            text = if (lang == "it") "Sincronizza" else "Sync",
                                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                                             color = MaterialTheme.colorScheme.onSecondaryContainer
                                         )
@@ -816,9 +855,9 @@ fun StudyScreen(
                         ) {
                             Text(
                                 text = if (lang == "it")
-                                    "Nessuna flashcard disponibile. Vai nella schermata Genera per creare le prime card dai tuoi appunti."
+                                    "Nessuna flashcard disponibile. Vai nella schermata Sincronizza per scaricare le card da GitHub."
                                 else
-                                    "No flashcards available. Go to Generate to create your first cards from your notes.",
+                                    "No flashcards available. Go to Sync to download your cards from GitHub.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = TextAlign.Center,
@@ -826,34 +865,15 @@ fun StudyScreen(
                             )
 
                             Button(
-                                onClick = { navController?.navigate("generate") },
+                                onClick = { navController?.navigate("sync") },
                                 modifier = Modifier.fillMaxWidth().height(56.dp),
-                                shape = RoundedCornerShape(16.dp)
-                            ) {
-                                Icon(Icons.Default.AutoAwesome, contentDescription = null)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = if (lang == "it") "Vai a Genera" else "Go to Generate",
-                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                                )
-                            }
-
-                            OutlinedButton(
-                                onClick = {
-                                    val hasCreds = viewModel.getGithubPat().isNotBlank()
-                                    if (hasCreds) {
-                                        viewModel.syncDeck()
-                                    } else {
-                                        showInitDialog = true
-                                    }
-                                },
-                                modifier = Modifier.fillMaxWidth().height(52.dp),
                                 shape = RoundedCornerShape(16.dp)
                             ) {
                                 Icon(Icons.Default.CloudSync, contentDescription = null)
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = if (lang == "it") "Sincronizza da GitHub" else "Sync from GitHub"
+                                    text = if (lang == "it") "Vai a Sincronizza" else "Go to Sync",
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                                 )
                             }
                         }
@@ -914,11 +934,16 @@ fun StudyScreen(
                             text = when (studyMode) {
                                 "classic" -> Loc.get("title_classic", lang)
                                 "questions" -> Loc.get("title_questions", lang)
+                                "true_false" -> if (lang == "it") "↔️ Vero o Falso" else "↔️ True or False"
+                                "multiple_choice" -> if (lang == "it") "❓ Scelta Multipla" else "❓ Multiple Choice"
                                 else -> Loc.get("title_curiosities", lang)
                             },
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
+                            style = MaterialTheme.typography.titleLarge.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontSize = 21.sp,
+                                fontFamily = FontFamily.SansSerif,
+                                letterSpacing = 0.5.sp
                             )
                         )
 
@@ -953,43 +978,74 @@ fun StudyScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f),
-                        userScrollEnabled = isFlipped,
+                        userScrollEnabled = false,
                         key = { page -> studyQueue.getOrNull(page)?.id ?: page.toString() }
                     ) { page ->
                         val card = studyQueue.getOrNull(page)
                         if (card != null) {
-                            // Animatable offset for horizontal swipe to discard
+                            val density = LocalDensity.current
                             val animOffsetX = remember { Animatable(0f) }
                             val dragX = animOffsetX.value
+                            val thresholdPx = remember { with(density) { 45.dp.toPx() } }
+
+                            // Retrieve the current streak
+                            val currentStreak by viewModel.currentStreak.collectAsState()
+
+                            // Fire intensity calculation
+                            val fireIntensity = remember(currentStreak) {
+                                if (currentStreak <= 9) 0f
+                                else ((currentStreak - 9).toFloat() / 21f).coerceIn(0f, 1f)
+                            }
+
+                            // Dynamic color overlay values based on drag distance
+                            val swipeGreenAlpha = if (card.type == "true_false" && !isFlipped && dragX > 0f) {
+                                (dragX / thresholdPx).coerceIn(0f, 0.4f)
+                            } else 0f
+
+                            val swipeRedAlpha = if (card.type == "true_false" && !isFlipped && dragX < 0f) {
+                                (-dragX / thresholdPx).coerceIn(0f, 0.4f)
+                            } else 0f
+
+                            val dragModifier = if (card.type == "true_false" && !isFlipped) {
+                                Modifier.pointerInput(card.id) {
+                                    detectDragGestures(
+                                        onDrag = { change, dragAmount ->
+                                            change.consume()
+                                            scope.launch {
+                                                animOffsetX.snapTo(animOffsetX.value + dragAmount.x)
+                                            }
+                                        },
+                                        onDragEnd = {
+                                            scope.launch {
+                                                if (animOffsetX.value > thresholdPx) {
+                                                    // Swipe Right -> Vero
+                                                    animOffsetX.animateTo(1000f, tween(200))
+                                                    selectedAnswer = if (lang == "it") "Vero" else "True"
+                                                    viewModel.submitAnswer(card, if (lang == "it") "Vero" else "True")
+                                                    animOffsetX.snapTo(0f)
+                                                } else if (animOffsetX.value < -thresholdPx) {
+                                                    // Swipe Left -> Falso
+                                                    animOffsetX.animateTo(-1000f, tween(200))
+                                                    selectedAnswer = if (lang == "it") "Falso" else "False"
+                                                    viewModel.submitAnswer(card, if (lang == "it") "Falso" else "False")
+                                                    animOffsetX.snapTo(0f)
+                                                } else {
+                                                    animOffsetX.animateTo(0f, tween(150))
+                                                }
+                                            }
+                                        }
+                                    )
+                                }
+                            } else {
+                                Modifier
+                            }
 
                             ElevatedCard(
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .padding(horizontal = 24.dp, vertical = 20.dp)
                                     .offset { IntOffset(dragX.roundToInt(), 0) }
-                                    .pointerInput(card.id) {
-                                        detectDragGestures(
-                                            onDrag = { change, dragAmount ->
-                                                change.consume()
-                                                scope.launch {
-                                                    animOffsetX.snapTo(animOffsetX.value + dragAmount.x)
-                                                }
-                                            },
-                                            onDragEnd = {
-                                                val thresholdPx = 140.dp.toPx()
-                                                scope.launch {
-                                                    if (animOffsetX.value > thresholdPx || animOffsetX.value < -thresholdPx) {
-                                                        animOffsetX.animateTo(if (animOffsetX.value > 0) 1000f else -1000f, tween(250))
-                                                        viewModel.discardCard(card)
-                                                        Toast.makeText(context, if (lang == "it") "Card scartata" else "Card discarded", Toast.LENGTH_SHORT).show()
-                                                        animOffsetX.snapTo(0f)
-                                                    } else {
-                                                        animOffsetX.animateTo(0f, tween(200))
-                                                    }
-                                                }
-                                            }
-                                        )
-                                    },
+                                    .then(dragModifier),
                                 shape = RoundedCornerShape(32.dp),
                                 colors = CardDefaults.elevatedCardColors(
                                     containerColor = MaterialTheme.colorScheme.surface,
@@ -997,382 +1053,450 @@ fun StudyScreen(
                                 ),
                                 elevation = CardDefaults.elevatedCardElevation(defaultElevation = 6.dp)
                             ) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(getCardGradient(card.difficulty))
-                                        .padding(24.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    // Card Header: Type indicator + Difficulty + Scarta Button
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Row(
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Surface(
-                                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f),
-                                                shape = RoundedCornerShape(100)
-                                            ) {
-                                                Text(
-                                                    text = if (card.type == "true_false") Loc.get("true_false_label", lang) else Loc.get("multiple_choice_label", lang),
-                                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                                                    style = MaterialTheme.typography.labelSmall.copy(
-                                                        fontWeight = FontWeight.ExtraBold,
-                                                        color = MaterialTheme.colorScheme.primary,
-                                                        fontSize = 9.sp,
-                                                        letterSpacing = 1.sp
-                                                    )
-                                                )
-                                            }
-                                            
-                                            Surface(
-                                                color = when(card.difficulty.lowercase()) {
-                                                    "easy" -> Color(0xFFE8F5E9).copy(alpha = 0.8f)
-                                                    "medium" -> Color(0xFFFFF3E0).copy(alpha = 0.8f)
-                                                    else -> Color(0xFFFFEBEE).copy(alpha = 0.8f)
-                                                },
-                                                shape = RoundedCornerShape(100)
-                                            ) {
-                                                Text(
-                                                    text = Loc.get("${card.difficulty.lowercase()}_label", lang).uppercase(),
-                                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                                    style = MaterialTheme.typography.labelSmall.copy(
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = when(card.difficulty.lowercase()) {
-                                                            "easy" -> Color(0xFF2E7D32)
-                                                            "medium" -> Color(0xFFE65100)
-                                                            else -> Color(0xFFC62828)
-                                                        },
-                                                        fontSize = 9.sp
-                                                    )
-                                                )
-                                            }
-                                        }
-
-                                        IconButton(
-                                            onClick = {
-                                                viewModel.discardCard(card)
-                                                Toast.makeText(context, if (lang == "it") "Card scartata" else "Card discarded", Toast.LENGTH_SHORT).show()
-                                            },
-                                            modifier = Modifier.size(36.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Delete,
-                                                contentDescription = if (lang == "it") "Scarta card" else "Discard card",
-                                                tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
-                                                modifier = Modifier.size(20.dp)
-                                            )
-                                        }
-                                    }
-
-                                    // Center-Top: Card Topic / Category
-                                    val cleanTopic = if (card.topic.isNotBlank()) {
-                                        card.topic
-                                    } else {
-                                        val parts = card.source_file.split("/").map { it.trim() }.filter { it.isNotEmpty() }
-                                        var folder = ""
-                                        if (parts.size >= 2) {
-                                            val last = parts.last()
-                                            folder = if (last.endsWith(".md", ignoreCase = true)) parts[parts.size - 2] else last
-                                        } else if (parts.isNotEmpty()) {
-                                            val last = parts.last()
-                                            folder = if (last.endsWith(".md", ignoreCase = true)) last.substringBeforeLast(".md") else last
-                                        }
-                                        if (folder.equals("appunti", ignoreCase = true)) "GENERALE" else folder
-                                    }.trim().uppercase()
-
-                                    if (cleanTopic.isNotBlank()) {
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Text(
-                                            text = cleanTopic,
-                                            style = MaterialTheme.typography.labelMedium.copy(
-                                                fontWeight = FontWeight.ExtraBold,
-                                                color = MaterialTheme.colorScheme.secondary,
-                                                letterSpacing = 1.2.sp
-                                            ),
-                                            textAlign = TextAlign.Center,
-                                            modifier = Modifier.fillMaxWidth()
-                                        )
-                                    }
-
-                                    // Centered Question Text (tra virgolette)
+                                Box(modifier = Modifier.fillMaxSize()) {
+                                    // Base Background Layer
                                     Box(
                                         modifier = Modifier
-                                            .weight(if (isFlipped) 0.8f else 1f)
-                                            .fillMaxWidth()
-                                            .padding(vertical = 8.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        val questionStyle = if (card.question.length > 80 || isFlipped) {
-                                            MaterialTheme.typography.titleMedium.copy(
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.onSurface,
-                                                lineHeight = 22.sp
-                                            )
-                                        } else {
-                                            MaterialTheme.typography.titleLarge.copy(
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.onSurface,
-                                                lineHeight = 28.sp
-                                            )
-                                        }
-                                        FormattedMarkdownText(
-                                            text = card.question,
-                                            style = questionStyle
+                                            .fillMaxSize()
+                                            .background(getCardGradient(card.difficulty))
+                                    )
+
+                                    // Fire Overlay animation layer drawn underneath text
+                                    FireOverlay(
+                                        intensity = fireIntensity,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+
+                                    // Tinder-style gesture coloring layers
+                                    if (swipeGreenAlpha > 0f) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .background(Color(0xFF4CAF50).copy(alpha = swipeGreenAlpha))
+                                        )
+                                    }
+                                    if (swipeRedAlpha > 0f) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .background(Color(0xFFF44336).copy(alpha = swipeRedAlpha))
                                         )
                                     }
 
-                                    // Interactive content based on game mode & type
-                                    if (!isFlipped) {
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(vertical = 4.dp),
-                                            contentAlignment = Alignment.BottomCenter
-                                        ) {
-                                            if (studyMode == "curiosities") {
-                                                Button(
-                                                    onClick = { 
-                                                        selectedAnswer = "Capito"
-                                                        viewModel.submitAnswer(card, "Capito") 
-                                                    },
-                                                    shape = RoundedCornerShape(16.dp),
-                                                    modifier = Modifier.fillMaxWidth().height(48.dp)
-                                                ) {
-                                                    Icon(Icons.Default.Lightbulb, contentDescription = null)
-                                                    Spacer(modifier = Modifier.width(8.dp))
-                                                    Text(
-                                                        text = Loc.get("btn_discover_pill", lang),
-                                                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold)
-                                                    )
-                                                }
-                                            } else if (studyMode == "questions") {
-                                                Button(
-                                                    onClick = { 
-                                                        selectedAnswer = "Mostra Risposta"
-                                                        viewModel.submitAnswer(card, "Mostra Risposta") 
-                                                    },
-                                                    shape = RoundedCornerShape(16.dp),
-                                                    modifier = Modifier.fillMaxWidth().height(48.dp)
-                                                ) {
-                                                    Icon(Icons.Default.Visibility, contentDescription = null)
-                                                    Spacer(modifier = Modifier.width(8.dp))
-                                                    Text(
-                                                        text = Loc.get("btn_show_answer", lang),
-                                                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold)
-                                                    )
-                                                }
-                                            } else {
-                                                if (card.type == "true_false") {
-                                                    Row(
-                                                        modifier = Modifier.fillMaxWidth(),
-                                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                                    ) {
-                                                        val veroLabel = if (lang == "it") "Vero" else "True"
-                                                        val falsoLabel = if (lang == "it") "Falso" else "False"
-                                                        AnswerButton(
-                                                            text = veroLabel,
-                                                            card = card,
-                                                            isFlipped = false,
-                                                            selectedAnswer = selectedAnswer,
-                                                            onClick = { 
-                                                                selectedAnswer = veroLabel
-                                                                viewModel.submitAnswer(card, veroLabel) 
-                                                            },
-                                                            modifier = Modifier.weight(1f).height(48.dp)
-                                                        )
-                                                        AnswerButton(
-                                                            text = falsoLabel,
-                                                            card = card,
-                                                            isFlipped = false,
-                                                            selectedAnswer = selectedAnswer,
-                                                            onClick = { 
-                                                                selectedAnswer = falsoLabel
-                                                                viewModel.submitAnswer(card, falsoLabel) 
-                                                            },
-                                                            modifier = Modifier.weight(1f).height(48.dp)
-                                                        )
-                                                    }
-                                                } else {
-                                                    Column(
-                                                        modifier = Modifier.fillMaxWidth(),
-                                                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                                                    ) {
-                                                        card.options.forEach { option ->
-                                                            AnswerButton(
-                                                                text = option,
-                                                                card = card,
-                                                                isFlipped = false,
-                                                                selectedAnswer = selectedAnswer,
-                                                                onClick = { 
-                                                                    selectedAnswer = option
-                                                                    viewModel.submitAnswer(card, option) 
-                                                                },
-                                                                modifier = Modifier.fillMaxWidth().height(40.dp)
-                                                            )
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    } else {
-                                        // Flipped feedback and explanation
-                                        Column(
-                                            modifier = Modifier
-                                                .weight(1.2f)
-                                                .fillMaxWidth(),
-                                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            val isCorrect = if (card.type == "true_false") {
-                                                val selVero = selectedAnswer == "Vero" || selectedAnswer == "True" || selectedAnswer == "V" || selectedAnswer == "T"
-                                                val corrVero = card.correct_answer == "Vero" || card.correct_answer == "True" || card.correct_answer == "V" || card.correct_answer == "T"
-                                                selVero == corrVero
-                                            } else {
-                                                selectedAnswer == card.correct_answer
-                                            }
-                                            
-                                            val isNeutralFlip = selectedAnswer == null || 
-                                                                selectedAnswer == "Mostra Risposta" || 
-                                                                selectedAnswer == "Capito" || 
-                                                                selectedAnswer == "Show Answer" ||
-                                                                selectedAnswer == "Discover Pill" ||
-                                                                selectedAnswer == Loc.get("btn_show_answer", lang) ||
-                                                                selectedAnswer == Loc.get("btn_discover_pill", lang) ||
-                                                                studyMode == "questions" || 
-                                                                studyMode == "curiosities"
+                                    // Main Column with fixed padding and SpaceBetween arrangement
+                                     Column(
+                                         modifier = Modifier
+                                             .fillMaxSize()
+                                             .padding(24.dp),
+                                         horizontalAlignment = Alignment.CenterHorizontally,
+                                         verticalArrangement = Arrangement.SpaceBetween
+                                     ) {
+                                         // 1. Scrollable Content Area (Header, Topic, Question / Feedback, Explanation)
+                                         Column(
+                                             modifier = Modifier
+                                                 .weight(1f)
+                                                 .fillMaxWidth()
+                                                 .verticalScroll(rememberScrollState()),
+                                             horizontalAlignment = Alignment.CenterHorizontally,
+                                             verticalArrangement = if (!isFlipped) Arrangement.Center else Arrangement.Top
+                                         ) {
+                                             if (!isFlipped) {
+                                                 // Card Header: Type indicator + Difficulty + Scarta Button
+                                                 Row(
+                                                     modifier = Modifier.fillMaxWidth(),
+                                                     horizontalArrangement = Arrangement.SpaceBetween,
+                                                     verticalAlignment = Alignment.CenterVertically
+                                                 ) {
+                                                     Row(
+                                                         horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                                         verticalAlignment = Alignment.CenterVertically
+                                                     ) {
+                                                         Surface(
+                                                             color = Color.Transparent, modifier = Modifier.size(0.dp),
+                                                             shape = RoundedCornerShape(100)
+                                                         ) {
+                                                             Text(
+                                                                 text = "",
+                                                                 modifier = Modifier.size(0.dp),
+                                                                 style = MaterialTheme.typography.labelSmall.copy(
+                                                                     fontWeight = FontWeight.ExtraBold,
+                                                                     color = MaterialTheme.colorScheme.primary,
+                                                                     fontSize = 9.sp,
+                                                                     letterSpacing = 1.sp
+                                                                 )
+                                                             )
+                                                         }
+                                                         
+                                                         Surface(
+                                                             color = when(card.difficulty.lowercase()) {
+                                                                 "easy" -> Color(0xFFE8F5E9).copy(alpha = 0.8f)
+                                                                 "medium" -> Color(0xFFE8EAF6).copy(alpha = 0.8f)
+                                                                 else -> Color(0xFFFFEBEE).copy(alpha = 0.8f)
+                                                             },
+                                                             shape = RoundedCornerShape(100)
+                                                         ) {
+                                                             Text(
+                                                                 text = Loc.get("${card.difficulty.lowercase()}_label", lang).uppercase(),
+                                                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                                                 style = MaterialTheme.typography.labelSmall.copy(
+                                                                     fontWeight = FontWeight.Bold,
+                                                                     color = when(card.difficulty.lowercase()) {
+                                                                         "easy" -> Color(0xFF2E7D32)
+                                                                         "medium" -> Color(0xFF1A237E)
+                                                                         else -> Color(0xFFC62828)
+                                                                     },
+                                                                     fontSize = 9.sp
+                                                                 )
+                                                             )
+                                                         }
+                                                     }
 
-                                            val feedbackTitle = if (isNeutralFlip) {
-                                                Loc.get("ref_answer_title", lang)
-                                            } else if (isCorrect) {
-                                                Loc.get("feedback_correct", lang)
-                                            } else {
-                                                Loc.get("feedback_incorrect", lang)
-                                            }
+                                                     // Discard/Trash icon button
+                                                     IconButton(
+                                                         onClick = {
+                                                             viewModel.discardCard(card)
+                                                             Toast.makeText(context, if (lang == "it") "Card scartata" else "Card discarded", Toast.LENGTH_SHORT).show()
+                                                         },
+                                                         modifier = Modifier.size(36.dp)
+                                                     ) {
+                                                         Icon(
+                                                             imageVector = Icons.Default.Delete,
+                                                             contentDescription = "Scarta",
+                                                             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                                             modifier = Modifier.size(20.dp)
+                                                         )
+                                                     }
+                                                 }
 
-                                            val boxColor = if (isNeutralFlip) {
-                                                MaterialTheme.colorScheme.secondaryContainer
-                                            } else if (isCorrect) {
-                                                if (isSystemInDarkTheme()) Color(0xFF0F3E22) else Color(0xFFE8F5E9)
-                                            } else {
-                                                if (isSystemInDarkTheme()) Color(0xFF4C1D1D) else Color(0xFFFFEBEE)
-                                            }
+                                                 // Center-Top: Card Topic / Category
+                                                 val cleanTopic = if (card.topic.isNotBlank()) {
+                                                     card.topic
+                                                 } else {
+                                                     val parts = card.sourceFile.split("/").map { it.trim() }.filter { it.isNotEmpty() }
+                                                     var folder = ""
+                                                     if (parts.size >= 2) {
+                                                         val last = parts.last()
+                                                         folder = if (last.endsWith(".md", ignoreCase = true)) parts[parts.size - 2] else last
+                                                     } else if (parts.isNotEmpty()) {
+                                                         val last = parts.last()
+                                                         folder = if (last.endsWith(".md", ignoreCase = true)) last.substringBeforeLast(".md") else last
+                                                     }
+                                                     if (folder.equals("appunti", ignoreCase = true)) "GENERALE" else folder
+                                                 }.trim().uppercase()
 
-                                            val borderColor = if (isNeutralFlip) {
-                                                MaterialTheme.colorScheme.secondary
-                                            } else if (isCorrect) {
-                                                Color(0xFF4CAF50)
-                                            } else {
-                                                Color(0xFFF44336)
-                                            }
+                                                 if (cleanTopic.isNotBlank()) {
+                                                     Spacer(modifier = Modifier.height(12.dp))
+                                                     Text(
+                                                         text = cleanTopic,
+                                                         style = MaterialTheme.typography.labelMedium.copy(
+                                                             fontWeight = FontWeight.ExtraBold,
+                                                             color = MaterialTheme.colorScheme.secondary,
+                                                             letterSpacing = 1.2.sp
+                                                         ),
+                                                         textAlign = TextAlign.Center,
+                                                         modifier = Modifier.fillMaxWidth()
+                                                     )
+                                                 }
 
-                                            val titleColor = if (isNeutralFlip) {
-                                                MaterialTheme.colorScheme.onSecondaryContainer
-                                            } else if (isCorrect) {
-                                                if (isSystemInDarkTheme()) Color(0xFF81C784) else Color(0xFF2E7D32)
-                                            } else {
-                                                if (isSystemInDarkTheme()) Color(0xFFE57373) else Color(0xFFC62828)
-                                            }
+                                                 Spacer(modifier = Modifier.height(16.dp))
 
-                                            val icon = if (isNeutralFlip) {
-                                                Icons.Default.Info
-                                            } else if (isCorrect) {
-                                                Icons.Default.CheckCircle
-                                            } else {
-                                                Icons.Default.Cancel
-                                            }
+                                                 // Centered Question Text (tra virgolette)
+                                                 Box(
+                                                     modifier = Modifier
+                                                         .fillMaxWidth()
+                                                         .padding(vertical = 12.dp),
+                                                     contentAlignment = Alignment.Center
+                                                 ) {
+                                                     val questionStyle = if (card.question.length > 80) {
+                                                         MaterialTheme.typography.titleLarge.copy(
+                                                             fontWeight = FontWeight.ExtraBold,
+                                                             color = MaterialTheme.colorScheme.onSurface,
+                                                             lineHeight = 30.sp,
+                                                             fontSize = 22.sp,
+                                                             fontFamily = FontFamily.SansSerif
+                                                         )
+                                                     } else {
+                                                         MaterialTheme.typography.headlineSmall.copy(
+                                                             fontWeight = FontWeight.ExtraBold,
+                                                             color = MaterialTheme.colorScheme.onSurface,
+                                                             lineHeight = 38.sp,
+                                                             fontSize = 27.sp,
+                                                             fontFamily = FontFamily.SansSerif
+                                                         )
+                                                     }
+                                                     FormattedMarkdownText(
+                                                         text = card.question,
+                                                         style = questionStyle
+                                                     )
+                                                 }
+                                             } else {
+                                                 // Flipped feedback and explanation
+                                                 val isCorrect = if (card.type == "true_false") {
+                                                     val selVero = selectedAnswer == "Vero" || selectedAnswer == "True" || selectedAnswer == "V" || selectedAnswer == "T"
+                                                     val corrVero = card.correctAnswer == "Vero" || card.correctAnswer == "True" || card.correctAnswer == "V" || card.correctAnswer == "T"
+                                                     selVero == corrVero
+                                                 } else {
+                                                     selectedAnswer == card.correctAnswer
+                                                 }
+                                                 
+                                                 val isNeutralFlip = selectedAnswer == null || 
+                                                                     selectedAnswer == "Mostra Risposta" || 
+                                                                     selectedAnswer == "Capito" || 
+                                                                     selectedAnswer == "Show Answer" ||
+                                                                     selectedAnswer == "Discover Pill" ||
+                                                                     selectedAnswer == Loc.get("btn_show_answer", lang) ||
+                                                                     selectedAnswer == Loc.get("btn_discover_pill", lang) ||
+                                                                     studyMode == "questions" || 
+                                                                     studyMode == "curiosities"
 
-                                            // Compact feedback header
-                                            Surface(
-                                                color = boxColor,
-                                                border = androidx.compose.foundation.BorderStroke(1.dp, borderColor),
-                                                shape = RoundedCornerShape(12.dp),
-                                                modifier = Modifier.fillMaxWidth()
-                                            ) {
-                                                Row(
-                                                    modifier = Modifier.padding(8.dp),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                                ) {
-                                                    Icon(imageVector = icon, contentDescription = null, tint = borderColor, modifier = Modifier.size(18.dp))
-                                                    Text(text = feedbackTitle, style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold, color = titleColor))
-                                                    Spacer(modifier = Modifier.weight(1f))
-                                                    Text(
-                                                        text = "${if (lang == "it") "Corr: " else "Correct: "}${card.correct_answer}",
-                                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                                                    )
-                                                }
-                                            }
+                                                 val feedbackTitle = if (isNeutralFlip) {
+                                                     Loc.get("ref_answer_title", lang)
+                                                 } else if (isCorrect) {
+                                                     Loc.get("feedback_correct", lang)
+                                                 } else {
+                                                     Loc.get("feedback_incorrect", lang)
+                                                 }
 
-                                            // Scrollable Explanation Container
-                                            Surface(
-                                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                                shape = RoundedCornerShape(12.dp),
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .weight(1f)
-                                            ) {
-                                                Column(
-                                                    modifier = Modifier
-                                                        .fillMaxSize()
-                                                        .padding(12.dp)
-                                                        .verticalScroll(rememberScrollState())
-                                                ) {
-                                                    Text(
-                                                        text = if (studyMode == "curiosities") Loc.get("did_you_know_title", lang) else Loc.get("explanation_details_title", lang),
-                                                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                                                    )
-                                                    Spacer(modifier = Modifier.height(4.dp))
-                                                    FormattedMarkdownText(
-                                                        text = card.explanation,
-                                                        style = MaterialTheme.typography.bodyMedium,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                    )
-                                                    
-                                                    Spacer(modifier = Modifier.height(8.dp))
-                                                    Row(
-                                                        verticalAlignment = Alignment.CenterVertically,
-                                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                                    ) {
-                                                        Text("📄", fontSize = 10.sp)
-                                                        Text(
-                                                            text = card.source_file.substringAfterLast("/"),
-                                                            style = MaterialTheme.typography.labelSmall.copy(
-                                                                fontWeight = FontWeight.Medium,
-                                                                fontStyle = FontStyle.Italic,
-                                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                                                fontSize = 10.sp
-                                                            )
-                                                        )
-                                                    }
-                                                }
-                                            }
+                                                 val boxColor = if (isNeutralFlip) {
+                                                     MaterialTheme.colorScheme.secondaryContainer
+                                                 } else if (isCorrect) {
+                                                     if (isSystemInDarkTheme()) Color(0xFF0F3E22) else Color(0xFFE8F5E9)
+                                                 } else {
+                                                     if (isSystemInDarkTheme()) Color(0xFF4C1D1D) else Color(0xFFFFEBEE)
+                                                 }
 
-                                            // Next Card Action Button (anchored at bottom)
-                                            Button(
-                                                onClick = { 
-                                                    selectedAnswer = null
-                                                    viewModel.nextCard() 
-                                                },
-                                                modifier = Modifier.fillMaxWidth().height(48.dp),
-                                                shape = RoundedCornerShape(12.dp),
-                                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                                            ) {
-                                                Text(
-                                                    text = Loc.get("btn_next_card", lang),
-                                                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold)
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                                                 val borderColor = if (isNeutralFlip) {
+                                                     MaterialTheme.colorScheme.secondary
+                                                 } else if (isCorrect) {
+                                                     Color(0xFF4CAF50)
+                                                 } else {
+                                                     Color(0xFFF44336)
+                                                 }
+
+                                                 val titleColor = if (isNeutralFlip) {
+                                                     MaterialTheme.colorScheme.onSecondaryContainer
+                                                 } else if (isCorrect) {
+                                                     if (isSystemInDarkTheme()) Color(0xFF81C784) else Color(0xFF2E7D32)
+                                                 } else {
+                                                     if (isSystemInDarkTheme()) Color(0xFFE57373) else Color(0xFFC62828)
+                                                 }
+
+                                                 val icon = if (isNeutralFlip) {
+                                                     Icons.Default.Info
+                                                 } else if (isCorrect) {
+                                                     Icons.Default.CheckCircle
+                                                     } else {
+                                                     Icons.Default.Cancel
+                                                 }
+
+                                                 // Beautiful, compact feedback header (removed your answer and correct answer columns)
+                                                 Card(
+                                                     colors = CardDefaults.cardColors(containerColor = boxColor),
+                                                     border = androidx.compose.foundation.BorderStroke(2.dp, borderColor),
+                                                     shape = RoundedCornerShape(20.dp),
+                                                     modifier = Modifier
+                                                         .fillMaxWidth()
+                                                         .padding(vertical = 12.dp)
+                                                 ) {
+                                                     Row(
+                                                         modifier = Modifier
+                                                             .fillMaxWidth()
+                                                             .padding(horizontal = 16.dp, vertical = 14.dp),
+                                                         verticalAlignment = Alignment.CenterVertically,
+                                                         horizontalArrangement = Arrangement.Center
+                                                     ) {
+                                                         Icon(
+                                                             imageVector = icon,
+                                                             contentDescription = null,
+                                                             tint = borderColor,
+                                                             modifier = Modifier.size(28.dp)
+                                                         )
+                                                         Spacer(modifier = Modifier.width(12.dp))
+                                                         Text(
+                                                             text = feedbackTitle,
+                                                             style = MaterialTheme.typography.titleMedium.copy(
+                                                                 fontWeight = FontWeight.Black,
+                                                                 color = titleColor,
+                                                                 letterSpacing = 0.5.sp
+                                                             ),
+                                                             textAlign = TextAlign.Center
+                                                         )
+                                                     }
+                                                 }
+
+                                                 // Scrollable Explanation Container with enlarged typography
+                                                 Surface(
+                                                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                                     shape = RoundedCornerShape(12.dp),
+                                                     modifier = Modifier
+                                                         .fillMaxWidth()
+                                                         .padding(vertical = 4.dp)
+                                                 ) {
+                                                     Column(
+                                                         modifier = Modifier
+                                                             .fillMaxWidth()
+                                                             .padding(16.dp)
+                                                     ) {
+                                                         Text(
+                                                             text = if (studyMode == "curiosities") Loc.get("did_you_know_title", lang) else Loc.get("explanation_details_title", lang),
+                                                             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                                                         )
+                                                         Spacer(modifier = Modifier.height(8.dp))
+                                                         FormattedMarkdownText(
+                                                             text = card.explanation,
+                                                             style = MaterialTheme.typography.bodyLarge.copy(
+                                                                 fontSize = 17.sp,
+                                                                 lineHeight = 24.sp
+                                                             ),
+                                                             color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                         )
+                                                         
+                                                         Spacer(modifier = Modifier.height(12.dp))
+                                                         Row(
+                                                             verticalAlignment = Alignment.CenterVertically,
+                                                             horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                         ) {
+                                                             Text("📄", fontSize = 10.sp)
+                                                             Text(
+                                                                 text = card.sourceFile.substringAfterLast("/"),
+                                                                 style = MaterialTheme.typography.labelSmall.copy(
+                                                                     fontWeight = FontWeight.Medium,
+                                                                     fontStyle = FontStyle.Italic,
+                                                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                                                     fontSize = 10.sp
+                                                                 )
+                                                             )
+                                                         }
+                                                     }
+                                                 }
+                                             }
+                                         }
+
+                                         // 2. Fixed Bottom Area for Actions & Options
+                                         Box(
+                                             modifier = Modifier
+                                                 .fillMaxWidth()
+                                                 .padding(top = 16.dp),
+                                             contentAlignment = Alignment.BottomCenter
+                                         ) {
+                                             if (!isFlipped) {
+                                                 if (studyMode == "curiosities") {
+                                                     Button(
+                                                         onClick = { 
+                                                             selectedAnswer = "Capito"
+                                                             viewModel.submitAnswer(card, "Capito") 
+                                                         },
+                                                         shape = RoundedCornerShape(16.dp),
+                                                         modifier = Modifier.fillMaxWidth().height(56.dp)
+                                                     ) {
+                                                         Icon(Icons.Default.Lightbulb, contentDescription = null)
+                                                         Spacer(modifier = Modifier.width(8.dp))
+                                                         Text(
+                                                             text = Loc.get("btn_discover_pill", lang),
+                                                             style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold)
+                                                         )
+                                                     }
+                                                 } else if (studyMode == "questions") {
+                                                     Button(
+                                                         onClick = { 
+                                                             selectedAnswer = "Mostra Risposta"
+                                                             viewModel.submitAnswer(card, "Mostra Risposta") 
+                                                         },
+                                                         shape = RoundedCornerShape(16.dp),
+                                                         modifier = Modifier.fillMaxWidth().height(56.dp)
+                                                     ) {
+                                                         Icon(Icons.Default.Visibility, contentDescription = null)
+                                                         Spacer(modifier = Modifier.width(8.dp))
+                                                         Text(
+                                                             text = Loc.get("btn_show_answer", lang),
+                                                             style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold)
+                                                         )
+                                                     }
+                                                 } else {
+                                                      if (card.type == "true_false") {
+                                                          Row(
+                                                              modifier = Modifier.fillMaxWidth(),
+                                                              horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                                          ) {
+                                                              val veroLabel = if (lang == "it") "Vero" else "True"
+                                                              val falsoLabel = if (lang == "it") "Falso" else "False"
+                                                              AnswerButton(
+                                                                  text = veroLabel,
+                                                                  card = card,
+                                                                  isFlipped = false,
+                                                                  selectedAnswer = selectedAnswer,
+                                                                  onClick = {
+                                                                      selectedAnswer = veroLabel
+                                                                      viewModel.submitAnswer(card, veroLabel)
+                                                                  },
+                                                                  overrideContainerColor = if (isSystemInDarkTheme()) Color(0xFF064E3B) else Color(0xFFE6F4EA),
+                                                                  overrideContentColor = if (isSystemInDarkTheme()) Color(0xFF34D399) else Color(0xFF137333),
+                                                                  modifier = Modifier.weight(1f).height(56.dp)
+                                                              )
+                                                              AnswerButton(
+                                                                  text = falsoLabel,
+                                                                  card = card,
+                                                                  isFlipped = false,
+                                                                  selectedAnswer = selectedAnswer,
+                                                                  onClick = {
+                                                                      selectedAnswer = falsoLabel
+                                                                      viewModel.submitAnswer(card, falsoLabel)
+                                                                  },
+                                                                  overrideContainerColor = if (isSystemInDarkTheme()) Color(0xFF7F1D1D) else Color(0xFFFCE8E6),
+                                                                  overrideContentColor = if (isSystemInDarkTheme()) Color(0xFFF87171) else Color(0xFFC5221F),
+                                                                  modifier = Modifier.weight(1f).height(56.dp)
+                                                              )
+                                                          }
+                                                      } else {
+                                                          Column(
+                                                              modifier = Modifier.fillMaxWidth(),
+                                                              verticalArrangement = Arrangement.spacedBy(10.dp)
+                                                          ) {
+                                                              card.options.forEachIndexed { idx, option ->
+                                                                  val prefixLetter = when (idx) {
+                                                                      0 -> "A"
+                                                                      1 -> "B"
+                                                                      2 -> "C"
+                                                                      else -> "D"
+                                                                  }
+                                                                  AnswerButton(
+                                                                      text = option,
+                                                                      card = card,
+                                                                      isFlipped = false,
+                                                                      selectedAnswer = selectedAnswer,
+                                                                      prefix = prefixLetter,
+                                                                      onClick = {
+                                                                          selectedAnswer = option
+                                                                          viewModel.submitAnswer(card, option)
+                                                                      },
+                                                                      modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp)
+                                                                  )
+                                                              }
+                                                          }
+                                                      }
+                                                  }
+                                             } else {
+                                                 // Next Card Action Button (anchored at bottom)
+                                                 Button(
+                                                     onClick = { 
+                                                         selectedAnswer = null
+                                                         viewModel.nextCard() 
+                                                     },
+                                                     modifier = Modifier.fillMaxWidth().height(56.dp),
+                                                     shape = RoundedCornerShape(16.dp),
+                                                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                                                 ) {
+                                                     Text(
+                                                         text = Loc.get("btn_next_card", lang),
+                                                         style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold)
+                                                     )
+                                                 }
+                                             }
+                                         }
+                                     }
+                                } // Closes Box container
+                            } // Closes ElevatedCard
+                        } // Closes card != null check
                     }
                 }
             }
@@ -1478,15 +1602,15 @@ fun getCardGradient(difficulty: String, darkTheme: Boolean = isSystemInDarkTheme
             if (darkTheme) {
                 Brush.verticalGradient(
                     colors = listOf(
-                        Color(0xFF331E00),
-                        Color(0xFF1F1100)
+                        Color(0xFF1A237E),
+                        Color(0xFF0D123F)
                     )
                 )
             } else {
                 Brush.verticalGradient(
                     colors = listOf(
-                        Color(0xFFFFF3E0),
-                        Color(0xFFFFE0B2)
+                        Color(0xFFE8EAF6),
+                        Color(0xFFC5CAE9)
                     )
                 )
             }
@@ -1535,14 +1659,17 @@ fun AnswerButton(
     isFlipped: Boolean,
     selectedAnswer: String?,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    prefix: String? = null,
+    overrideContainerColor: Color? = null,
+    overrideContentColor: Color? = null
 ) {
     val isCorrectOption = if (card.type == "true_false") {
         val textVero = text == "Vero" || text == "True" || text == "V" || text == "T"
-        val corrVero = card.correct_answer == "Vero" || card.correct_answer == "True" || card.correct_answer == "V" || card.correct_answer == "T"
+        val corrVero = card.correctAnswer == "Vero" || card.correctAnswer == "True" || card.correctAnswer == "V" || card.correctAnswer == "T"
         textVero == corrVero
     } else {
-        text == card.correct_answer
+        text == card.correctAnswer
     }
     val isSelected = text == selectedAnswer
     
@@ -1563,8 +1690,8 @@ fun AnswerButton(
         }
     } else {
         ButtonDefaults.filledTonalButtonColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.primary
+            containerColor = overrideContainerColor ?: MaterialTheme.colorScheme.primaryContainer,
+            contentColor = overrideContentColor ?: MaterialTheme.colorScheme.primary
         )
     }
 
@@ -1572,17 +1699,62 @@ fun AnswerButton(
         onClick = onClick,
         enabled = !isFlipped,
         shape = RoundedCornerShape(16.dp),
-        modifier = modifier.height(64.dp),
+        modifier = modifier.defaultMinSize(minHeight = 54.dp),
+        border = androidx.compose.foundation.BorderStroke(
+            width = 1.5.dp,
+            color = if (isSelected) MaterialTheme.colorScheme.primary 
+                    else (overrideContentColor ?: MaterialTheme.colorScheme.primary).copy(alpha = 0.25f)
+        ),
         colors = buttonColors
     ) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.titleMedium.copy(
-                fontWeight = FontWeight.Bold,
-                fontSize = 18.sp
-            ),
-            textAlign = TextAlign.Center
-        )
+        if (prefix != null) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Start
+            ) {
+                // Prefix circle badge
+                Surface(
+                    shape = RoundedCornerShape(100),
+                    color = if (isSelected) MaterialTheme.colorScheme.primary 
+                            else (overrideContentColor ?: MaterialTheme.colorScheme.primary).copy(alpha = 0.15f),
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            text = prefix,
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontWeight = FontWeight.Black,
+                                color = if (isSelected) MaterialTheme.colorScheme.onPrimary 
+                                        else (overrideContentColor ?: MaterialTheme.colorScheme.primary)
+                            )
+                        )
+                    }
+                }
+                
+                Spacer(modifier = Modifier.width(14.dp))
+                
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.bodyLarge.copy(
+                        fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
+                        fontSize = 16.sp
+                    ),
+                    textAlign = TextAlign.Start,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        } else {
+            Text(
+                text = text,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 17.sp
+                ),
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(vertical = 2.dp)
+            )
+        }
     }
 }
 
@@ -1748,6 +1920,76 @@ fun FormattedMarkdownText(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun FireOverlay(
+    intensity: Float,
+    modifier: Modifier = Modifier
+) {
+    if (intensity <= 0f) return
+
+    val infiniteTransition = rememberInfiniteTransition(label = "fire")
+    val phase1 by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 2f * Math.PI.toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(1500, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "phase1"
+    )
+    val phase2 by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 2f * Math.PI.toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "phase2"
+    )
+
+    Canvas(modifier = modifier.fillMaxSize()) {
+        val width = size.width
+        val height = size.height
+
+        // Outer glow
+        drawRoundRect(
+            color = Color(0xFFFF5722).copy(alpha = 0.2f * intensity),
+            size = size,
+            cornerRadius = CornerRadius(24.dp.toPx(), 24.dp.toPx()),
+            style = Stroke(width = (4 + 6 * intensity).dp.toPx())
+        )
+
+        val particleCount = (15 + 25 * intensity).toInt()
+        for (i in 0 until particleCount) {
+            val seed = i * 57.7f
+            val xProgress = (seed % 1f)
+            val xPos = xProgress * width
+
+            val speedFactor = 1.2f + (seed % 1.8f)
+            val t = (phase1 * speedFactor + seed) % (2f * Math.PI.toFloat())
+            val yProgress = (Math.sin(t.toDouble()).toFloat() + 1f) / 2f // 0f to 1f
+
+            val yPos = height - (yProgress * 120.dp.toPx() * intensity)
+            val particleSize = (8.dp.toPx() + (seed % 14.dp.toPx())) * intensity * (1f - yProgress * 0.8f)
+
+            val color = when {
+                seed % 3f < 1f -> Color(0xFFFF2D00).copy(alpha = 0.35f * (1f - yProgress))
+                seed % 3f < 2f -> Color(0xFFFF7D00).copy(alpha = 0.5f * (1f - yProgress))
+                else -> Color(0xFFFFD500).copy(alpha = 0.7f * (1f - yProgress))
+            }
+
+            drawCircle(
+                color = color,
+                radius = particleSize,
+                center = Offset(
+                    x = xPos + Math.sin((phase2 + seed).toDouble()).toFloat() * 12.dp.toPx() * intensity,
+                    y = yPos
+                )
+            )
         }
     }
 }

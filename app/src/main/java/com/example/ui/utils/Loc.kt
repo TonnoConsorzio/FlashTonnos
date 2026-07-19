@@ -164,7 +164,7 @@ object Loc {
             "mode_curiosities_label" to "Curiosities & Pills",
             "mode_curiosities_detail" to "💡 Historical facts and fun curiosities about the topic",
             "ai_config_title" to "AI Configuration (OpenRouter)",
-            "ai_model_desc" to "Use 'openrouter/auto' to automatically choose the optimal free model.",
+            "ai_model_desc" to "Use 'google/gemini-2.5-flash-lite' as the optimal free model on OpenRouter.",
             "daily_reminder" to "Daily Reminder",
             "daily_reminder_desc" to "Receive a notification every evening at 20:00 to maintain your streak",
             "reminder_set_toast" to "Reminder set for 20:00! 🔔",
@@ -190,8 +190,8 @@ object Loc {
 
             // Active session UI details
             "back_to_dashboard_cd" to "Back to Dashboard",
-            "true_false_label" to "TRUE OR FALSE",
-            "multiple_choice_label" to "MULTIPLE CHOICE",
+            "true_false_label" to "True or False",
+            "multiple_choice_label" to "Multiple Choice",
             "topic_prefix" to "📚 TOPIC: ",
             "did_you_know_title" to "💡 Did you know?",
             "explanation_details_title" to "🎯 Explanation & Details",
@@ -361,7 +361,7 @@ object Loc {
             "mode_curiosities_label" to "Curiosità e Pillole",
             "mode_curiosities_detail" to "💡 Fatti storici e curiosità divertenti sull'argomento",
             "ai_config_title" to "Configurazione AI (OpenRouter)",
-            "ai_model_desc" to "Usa 'openrouter/auto' per far scegliere automaticamente il modello gratuito ottimale.",
+            "ai_model_desc" to "Usa 'google/gemini-2.5-flash-lite' come modello gratuito ottimale su OpenRouter.",
             "daily_reminder" to "Promemoria Giornaliero",
             "daily_reminder_desc" to "Ricevi una notifica ogni sera alle 20:00 per mantenere la streak",
             "reminder_set_toast" to "Promemoria impostato per le 20:00! 🔔",
@@ -387,8 +387,8 @@ object Loc {
 
             // Active session UI details
             "back_to_dashboard_cd" to "Ritorna alla Dashboard",
-            "true_false_label" to "VERO O FALSO",
-            "multiple_choice_label" to "SCELTA MULTIPLA",
+            "true_false_label" to "Vero o Falso",
+            "multiple_choice_label" to "Risposta Multipla",
             "topic_prefix" to "📚 ARGOMENTO: ",
             "did_you_know_title" to "💡 Lo sapevi che?",
             "explanation_details_title" to "🎯 Spiegazione e Dettagli",

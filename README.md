@@ -16,10 +16,20 @@ Con un design moderno basato su **Material Design 3**, una gestione dei gesti av
   - **Risposte Esatte Consecutive**: Conta quante risposte corrette hai dato di fila durante le tue sessioni di ripasso corrente, con tracking del record storico.
 - **⏰ Promemoria Giornaliero**: Un sistema di notifiche push locali configurabile direttamente dalle impostazioni per ricordarti ogni sera alle 20:00 di effettuare il ripasso quotidiano e non perdere la tua streak di studio.
 - **🎴 Spaced Repetition e Gesti Fluidi**: Sistema di ripasso basato su gesti intuitivi (*swipe gestures*):
-  - 🟩 **Destra (Swipe Right)**: Memorizzato/Corretto.
-  - 🟥 **Sinistra (Swipe Left)**: Flag/Ignora.
-  - 🟨 **Su (Swipe Up)**: Salta.
-  - 🟦 **Giù (Swipe Down)**: Posticipa (inserisce la carta 4 posizioni più avanti nel mazzo di studio per un ripasso a breve termine).
+  - 🟩 **Gesto Tinder (Vero o Falso)**: Trascina la carta a destra per "Vero" o a sinistra per "Falso". Più trascini la carta, più lo sfondo si colora gradualmente di verde o di rosso, con un feedback visivo immediato ed estremamente appagante.
+  - 🟩 **Destra (Swipe Right)**: Segnala risposta corretta / compresa.
+  - 🟥 **Sinistra (Swipe Left)**: Segnala risposta errata / da rivedere.
+  - 🟨 **Su (Swipe Up)**: Salta la carta corrente.
+  - 🟦 **Giù (Swipe Down)**: Posticipa la carta nel mazzo corrente.
+- **📚 Tre Modalità di Studio Avanzate**:
+  - **Approfondimento (Deep Dive)**: Studia le pillole informative dettagliate estratte direttamente dai tuoi appunti per memorizzare concetti complessi.
+  - **Vero o Falso**: Metti alla prova la tua memoria in modo fulmineo con lo swipe stile Tinder.
+  - **Risposta Multipla**: Scegli l'opzione corretta tra quattro alternative generate dall'AI.
+- **🔥 Streak in Fiamme (Fire Animation)**: Quando entri in una streak di risposte esatte consecutive (a partire da 9 di fila), la card prende letteralmente fuoco! Un'animazione particellare dinamica aumenta l'intensità delle fiamme man mano che la streak cresce, raggiungendo il picco massimo a 30 risposte esatte per poi stabilizzarsi per non compromettere la visibilità del testo.
+- **🎨 Layout Spazioso e Moderno (Breathe Layout)**: Interfaccia utente ridisegnata per dare massima leggibilità. Le domande e i tag sono stati riorganizzati, distanziati in griglia Material 3, e la domanda superiore si nasconde automaticamente quando capovolgi la carta per dare pieno respiro e risalto alla spiegazione e alle risposte.
+- **🔄 Sincronizzazione Intelligente e Forza Sincronizzazione**:
+  - **Sincronizzazione Incrementale**: Scarica solo i file modificati su GitHub controllando le firme SHA degli indici per risparmiare traffico e tempo.
+  - **Forza Sincronizzazione**: Un'opzione dedicata per ignorare la cache e forzare il download completo da zero di tutti i file (es. le tue 75 note), garantendo che tutti i dati locali siano perfettamente allineati e aggiornati.
 - **🎨 Temi Visivi Personalizzati**: Supporto completo per diversi schemi di colore moderni (es. Slate, Forest, Sunset, Lavender) per adattarsi alle tue preferenze di studio diurne o notturne.
 - **📴 Database Locale (Room/SQLite)**: Tutte le tue flashcard, risposte e progressi di studio sono memorizzati offline sul tuo dispositivo tramite Room Database per un ripasso fulmineo senza latenza.
 - **🛡️ Zona di Pericolo nelle Impostazioni**: Pieno controllo sul tuo database. Puoi svuotare completamente l'archivio locale con un solo tocco per ricaricare nuove note o inizializzare l'app da zero.

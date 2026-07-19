@@ -1,308 +1,62 @@
 package com.example.domain.repository
 
-import android.util.Base64
-import com.example.data.ai.Message
-import com.example.data.ai.OpenRouterRequest
-import com.example.data.ai.OpenRouterService
+import android.content.Context
 import com.example.data.github.GithubApiService
-import com.example.data.github.GithubPutRequest
 import com.example.data.local.CardDao
 import com.example.data.local.DeepDiveDao
 import com.example.data.local.FlashcardMapper
+import com.example.data.local.DeepDiveMapper
+import com.example.data.local.entities.DeepDiveInteractionEntity
 import com.example.data.preferences.AppPreferences
 import com.example.domain.models.Flashcard
 import com.example.domain.models.DeepDiveCard
-import com.example.domain.models.CardIndexEntry
 import com.example.domain.models.DeepDiveInteraction
-import com.example.data.local.DeepDiveMapper
-import com.squareup.moshi.Moshi
-import com.squareup.moshi.Types
-import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.map
+import java.time.Instant
 
 class FlashcardRepository(
     private val githubApi: GithubApiService,
-    private val openRouterApi: OpenRouterService,
     private val cardDao: CardDao,
     private val deepDiveDao: DeepDiveDao,
     private val appPreferences: AppPreferences,
-    private val context: android.content.Context
+    private val context: Context
 ) {
-    private val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
-    private val listType = Types.newParameterizedType(List::class.java, Flashcard::class.java)
-    private val listAdapter = moshi.adapter<List<Flashcard>>(listType)
-    private val cardAdapter = moshi.adapter(Flashcard::class.java)
-    private val deepDiveCardAdapter = moshi.adapter(DeepDiveCard::class.java)
-    private val generatedListType = Types.newParameterizedType(List::class.java, GeneratedFlashcard::class.java)
-    private val generatedListAdapter = moshi.adapter<List<GeneratedFlashcard>>(generatedListType)
 
-    private val _isGenerating = MutableStateFlow(false)
-    val isGenerating: StateFlow<Boolean> = _isGenerating.asStateFlow()
+    val selectedLanguageFlow: Flow<String> = appPreferences.selectedLanguageFlow
+    val demoInitializedFlow: Flow<Boolean> = appPreferences.demoInitializedFlow
+    val studyModeFlow: Flow<String> = appPreferences.studyModeFlow
 
-    private val _generationProgress = MutableStateFlow("")
-    val generationProgress: StateFlow<String> = _generationProgress.asStateFlow()
+    fun getGithubPat(): String = appPreferences.getGithubPat()
+    suspend fun getGithubOwner(): String = appPreferences.githubOwnerFlow.first()
+    suspend fun getGithubRepo(): String = appPreferences.githubRepoFlow.first()
+    suspend fun getGithubBranch(): String = appPreferences.githubBranchFlow.first()
 
-    private val _generationResult = MutableStateFlow<String?>(null)
-    val generationResult: StateFlow<String?> = _generationResult.asStateFlow()
-
-    val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var generationJob: kotlinx.coroutines.Job? = null
-
-    init {
-        repositoryScope.launch {
-            kotlinx.coroutines.delay(2000)
-            val autoEnabled = appPreferences.autoGenerateEnabledFlow.first()
-            if (autoEnabled) {
-                startAutoGenerationBackground()
-            }
-        }
+    suspend fun updateCredentials(pat: String, owner: String, repo: String, branch: String) {
+        appPreferences.setGithubPat(pat)
+        appPreferences.updateGithubOwner(owner)
+        appPreferences.updateGithubRepo(repo)
+        appPreferences.updateGithubBranch(branch)
     }
 
-    fun setGenerating(generating: Boolean) {
-        _isGenerating.value = generating
-    }
-
-    fun startAutoGenerationBackground(force: Boolean = false, onCompleted: () -> Unit = {}) {
-        val workRequest = androidx.work.OneTimeWorkRequestBuilder<com.example.data.worker.AutoGenerationWorker>()
-            .build()
-        val policy = androidx.work.ExistingWorkPolicy.REPLACE
-        androidx.work.WorkManager.getInstance(context).enqueueUniqueWork(
-            "auto_generation",
-            policy,
-            workRequest
-        )
-        onCompleted()
-    }
-
-    fun cancelGeneration() {
-        generationJob?.cancel()
-        generationJob = null
-        _isGenerating.value = false
-        _generationProgress.value = "Generazione annullata / Generation cancelled"
-    }
-
-    suspend fun getAllTrackedFiles(): List<com.example.data.local.entities.TrackedFileEntity> {
-        return deepDiveDao.getAllTrackedFiles()
-    }
-
-    fun getAllTrackedFilesFlow(): Flow<List<com.example.data.local.entities.TrackedFileEntity>> {
-        return deepDiveDao.getAllTrackedFilesFlow()
-    }
-
-    fun countActiveFlashcards(): Flow<Int> {
-        return cardDao.countActiveFlashcards()
-    }
-
-    fun countActiveDeepDives(): Flow<Int> {
-        return deepDiveDao.countActiveDeepDives()
-    }
-
-    suspend fun runAutoGeneration() {
-        if (_isGenerating.value) return
-        _isGenerating.value = true
-        _generationProgress.value = "Rilevamento file..."
-        
-        try {
-            val detectUseCase = com.example.domain.usecases.DetectChangedFilesUseCase(
-                githubApi = githubApi,
-                deepDiveDao = deepDiveDao,
-                appPreferences = appPreferences
-            )
-            
-            val generateUseCase = com.example.domain.usecases.AutoGenerationUseCase(
-                githubApi = githubApi,
-                openRouterApi = openRouterApi,
-                deepDiveDao = deepDiveDao,
-                repository = this,
-                appPreferences = appPreferences,
-                context = context
-            )
-            
-            val filesToProcess = detectUseCase.execute()
-            if (filesToProcess.isEmpty()) {
-                _generationProgress.value = "Tutti i file sono aggiornati!"
-                kotlinx.coroutines.delay(2000)
-                _generationProgress.value = "Idle"
-            } else {
-                _generationProgress.value = "Trovati ${filesToProcess.size} file da elaborare..."
-                generateUseCase.execute(filesToProcess) { progress ->
-                    _generationProgress.value = progress
-                }
-                _generationProgress.value = "Generazione completata!"
-                kotlinx.coroutines.delay(3000)
-                _generationProgress.value = "Aggiornato"
-            }
-        } catch (e: Exception) {
-            val errMsg = "Errore: ${e.localizedMessage ?: "Errore sconosciuto"}"
-            _generationProgress.value = errMsg
-            _generationResult.value = errMsg
-            e.printStackTrace()
-        } finally {
-            _isGenerating.value = false
-        }
-    }
-
-    private val _isStudying = MutableStateFlow(false)
-    val isStudying: StateFlow<Boolean> = _isStudying.asStateFlow()
-
-    fun setStudying(studying: Boolean) {
-        _isStudying.value = studying
-    }
-
-    fun setGenerationResult(result: String?) {
-        _generationResult.value = result
-    }
-
-    fun setGenerationProgress(progress: String) {
-        _generationProgress.value = progress
-    }
-
-    fun startGeneratingCards(sourceFile: String, amount: Int, type: String) {
-        _isGenerating.value = true
-        _generationResult.value = null
-        generationJob = repositoryScope.launch {
-            val lang = appPreferences.selectedLanguageFlow.first()
-            _generationProgress.value = if (lang == "it") "Avvio generazione dal file: $sourceFile..." else "Starting generation from file: $sourceFile..."
-            try {
-                val generatedCount = generateCards(sourceFile, amount, type) { status ->
-                    _generationProgress.value = status
-                }
-                _generationResult.value = if (lang == "it") {
-                    "✓ $generatedCount nuove card generate correttamente dal file: $sourceFile"
-                } else {
-                    "✓ $generatedCount new cards successfully generated from file: $sourceFile"
-                }
-            } catch (e: Exception) {
-                _generationResult.value = if (lang == "it") {
-                    "Errore: ${e.localizedMessage ?: "Errore generico"}"
-                } else {
-                    "Error: ${e.localizedMessage ?: "Generic error"}"
-                }
-            } finally {
-                _isGenerating.value = false
-            }
-        }
-    }
-
-    private fun interleaveFiles(files: List<String>): List<String> {
-        if (files.isEmpty()) return files
-        val groups = files.groupBy { path ->
-            path.substringBeforeLast("/", "")
-        }
-        val sortedFolders = groups.keys.sorted()
-        val maxListSize = groups.values.maxOfOrNull { it.size } ?: 0
-        val result = mutableListOf<String>()
-        for (i in 0 until maxListSize) {
-            for (folder in sortedFolders) {
-                val list = groups[folder] ?: continue
-                if (i < list.size) {
-                    result.add(list[i])
-                }
-            }
-        }
-        return result
-    }
-
-    fun startGeneratingAllCardsMassively(type: String) {
-        _isGenerating.value = true
-        _generationResult.value = null
-        generationJob = repositoryScope.launch {
-            val lang = appPreferences.selectedLanguageFlow.first()
-            _generationProgress.value = if (lang == "it") "Scansione dei file .md nelle cartelle configurate..." else "Scanning .md files in configured folders..."
-            try {
-                val rawFiles = fetchMarkdownFilesFromConfiguredFolders()
-                val files = interleaveFiles(rawFiles)
-                if (files.isEmpty()) {
-                    _generationResult.value = if (lang == "it") {
-                        "Nessun file .md trovato nelle cartelle configurate. Controlla le impostazioni."
-                    } else {
-                        "No .md files found in configured folders. Please check your settings."
-                    }
-                    _isGenerating.value = false
-                    return@launch
-                }
-                
-                _generationProgress.value = if (lang == "it") {
-                    "Trovati ${files.size} file .md. Avvio generazione di 5 flashcard per ciascuno..."
-                } else {
-                    "Found ${files.size} .md files. Starting generation of 5 flashcards for each..."
-                }
-                var totalGenerated = 0
-                val errorSummaries = mutableListOf<String>()
-                for ((index, file) in files.withIndex()) {
-                    _generationProgress.value = if (lang == "it") {
-                        "[File ${index + 1}/${files.size}] Elaborazione di: $file..."
-                    } else {
-                        "[File ${index + 1}/${files.size}] Processing: $file..."
-                    }
-                    try {
-                        val count = generateCards(sourceFile = file, amount = 5, type = type) { status ->
-                            _generationProgress.value = if (lang == "it") {
-                                "[File ${index + 1}/${files.size}] $file:\n$status"
-                            } else {
-                                "[File ${index + 1}/${files.size}] $file:\n$status"
-                            }
-                        }
-                        totalGenerated += count
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                        val errMsg = e.localizedMessage ?: "Errore"
-                        errorSummaries.add("${file.substringAfterLast("/")}: $errMsg")
-                        break
-                    }
-                }
-                if (errorSummaries.isNotEmpty()) {
-                    val combinedErrors = errorSummaries.distinct().take(5).joinToString("\n")
-                    _generationResult.value = if (lang == "it") {
-                        "Generazione completata con errori OpenRouter:\n$combinedErrors\n(Totale nuove card generate: $totalGenerated)"
-                    } else {
-                        "Generation finished with OpenRouter errors:\n$combinedErrors\n(Total new cards generated: $totalGenerated)"
-                    }
-                } else {
-                    _generationResult.value = if (lang == "it") {
-                        "✓ Generazione massiva completata! Generate $totalGenerated nuove flashcard da ${files.size} file Markdown."
-                    } else {
-                        "✓ Massive generation completed! Generated $totalGenerated new flashcards from ${files.size} Markdown files."
-                    }
-                }
-            } catch (e: Exception) {
-                _generationResult.value = if (lang == "it") {
-                    "Errore durante la generazione massiva: ${e.localizedMessage ?: "Errore generico"}"
-                } else {
-                    "Error during massive generation: ${e.localizedMessage ?: "Generic error"}"
-                }
-            } finally {
-                _isGenerating.value = false
-            }
-        }
-    }
+    fun countActiveFlashcards(): Flow<Int> = cardDao.countActiveFlashcards()
+    fun countActiveDeepDives(): Flow<Int> = deepDiveDao.countActiveDeepDives()
 
     fun getStudyQueue(): Flow<List<Flashcard>> = cardDao.getStudyQueue().map { list ->
         list.map { FlashcardMapper.toDomain(it) }
     }
 
     suspend fun getStudyQueueSnapshot(): List<Flashcard> {
-        val list = cardDao.getStudyQueue().first()
-        return list.map { FlashcardMapper.toDomain(it) }
+        return cardDao.getStudyQueue().first().map { FlashcardMapper.toDomain(it) }
     }
 
     suspend fun getAllDeepDiveCardsSnapshot(): List<DeepDiveCard> {
-        val list = deepDiveDao.getAllCards().first()
-        return list.map { DeepDiveMapper.toDomain(it) }
+        return deepDiveDao.getAllCards().first().map { DeepDiveMapper.toDomain(it) }
     }
 
     suspend fun getAllDeepDiveInteractions(): List<DeepDiveInteraction> {
-        val list = deepDiveDao.getAllInteractions()
-        return list.map { DeepDiveMapper.toDomain(it) }
+        return deepDiveDao.getAllInteractions().map { DeepDiveMapper.toDomain(it) }
     }
 
     fun getAllDeepDiveCardsFlow(): Flow<List<DeepDiveCard>> {
@@ -311,797 +65,128 @@ class FlashcardRepository(
         }
     }
 
-    fun getAllFlashcardsFlow(): Flow<List<com.example.domain.models.Flashcard>> {
+    fun getAllFlashcardsFlow(): Flow<List<Flashcard>> {
         return cardDao.getAllCards().map { list ->
             list.map { FlashcardMapper.toDomain(it) }
         }
     }
 
-    suspend fun getDeepDiveBodyWordCount(cardId: String): Int {
-        val card = deepDiveDao.getCardById(cardId) ?: return 100
-        return card.body.split("\\s+".toRegex()).filter { it.isNotBlank() }.size
-    }
-
-    val demoInitializedFlow: Flow<Boolean> = appPreferences.demoInitializedFlow
-    val selectedLanguageFlow: Flow<String> = appPreferences.selectedLanguageFlow
-    
-    suspend fun getStats(): Map<String, Any> {
-        val allCards = cardDao.getAllCards().first()
-        val total = allCards.size
-        var correct = 0
-        var totalAttempts = 0
-        var easy = 0
-        var medium = 0
-        var hard = 0
-        
-        allCards.forEach { card ->
-            correct += card.timesCorrect
-            totalAttempts += card.timesShown
-            when (card.difficulty) {
-                "easy" -> easy++
-                "medium" -> medium++
-                "hard" -> hard++
-            }
-        }
-        
-        val interactions = deepDiveDao.getAllInteractions().map { DeepDiveMapper.toDomain(it) }
-        val totalDwellTimeSec = interactions.sumOf { it.dwellTimeMs } / 1000
-        val positiveCount = interactions.count { it.explicitFeedback == 1 }
-        val negativeCount = interactions.count { it.explicitFeedback == -1 }
-        
-        val topicDwellTimes = interactions.groupBy { it.topic }
-            .mapValues { group -> group.value.sumOf { it.dwellTimeMs } / 1000 }
-            .filter { it.key.isNotBlank() }
-
-        val tagDwellTimes = mutableMapOf<String, Long>()
-        interactions.forEach { interaction ->
-            val tagsList = interaction.tags.map { it.trim() }.filter { it.isNotBlank() }
-            tagsList.forEach { tag ->
-                tagDwellTimes[tag] = (tagDwellTimes[tag] ?: 0L) + (interaction.dwellTimeMs / 1000)
-            }
-        }
-
-        val accuracy = if (totalAttempts > 0) (correct.toFloat() / totalAttempts * 100).toInt() else 0
-        return mapOf(
-            "total" to total,
-            "correct" to correct,
-            "incorrect" to (totalAttempts - correct),
-            "accuracy" to accuracy,
-            "easy" to easy,
-            "medium" to medium,
-            "hard" to hard,
-            "daily_streak" to appPreferences.getDailyStreak(),
-            "max_daily_streak" to appPreferences.getMaxDailyStreak(),
-            "current_correct_streak" to appPreferences.getCurrentCorrectStreak(),
-            "max_correct_streak" to appPreferences.getMaxCorrectStreak(),
-            "dd_total_dwell_sec" to totalDwellTimeSec,
-            "dd_positive_count" to positiveCount,
-            "dd_negative_count" to negativeCount,
-            "dd_topic_dwell" to topicDwellTimes,
-            "dd_tag_dwell" to tagDwellTimes
-        )
-    }
-
     suspend fun updateCard(card: Flashcard) {
         cardDao.update(FlashcardMapper.toEntity(card))
-        saveCardToGithub(card)
-        saveStatsToGithub()
+    }
+
+    suspend fun updateDeepDiveCard(card: DeepDiveCard) {
+        deepDiveDao.updateCard(DeepDiveMapper.toEntity(card))
     }
 
     suspend fun deleteCardById(id: String) {
         cardDao.deleteCardById(id)
+    }
+
+    suspend fun deleteDeepDiveCardById(id: String) {
         deepDiveDao.deleteCardById(id)
-        repositoryScope.launch {
-            deleteCardFromIndex(id)
-        }
-    }
-
-    suspend fun deleteCardFromIndex(id: String) {
-        try {
-            val owner = appPreferences.githubOwnerFlow.first()
-            val repo = appPreferences.githubRepoFlow.first()
-            val branch = appPreferences.githubBranchFlow.first()
-            val token = "Bearer ${appPreferences.getGithubPat()}"
-            if (owner.isBlank() || repo.isBlank() || token.isBlank()) return
-
-            val path = "FlashTonnos/cards_index.json"
-            
-            val currentContentResponse = try {
-                githubApi.getContent(token, owner, repo, path, branch)
-            } catch (e: Exception) {
-                null
-            } ?: return
-
-            val base64Content = currentContentResponse.content?.replace("\n", "") ?: ""
-            val decodedJson = String(Base64.decode(base64Content, Base64.DEFAULT))
-            val type = Types.newParameterizedType(List::class.java, CardIndexEntry::class.java)
-            val adapter = moshi.adapter<List<CardIndexEntry>>(type)
-            val currentEntries = try {
-                adapter.fromJson(decodedJson) ?: emptyList()
-            } catch (e: Exception) {
-                emptyList()
-            }
-
-            val updated = currentEntries.filter { it.id != id }
-
-            val newContentJson = adapter.toJson(updated)
-            val newContentBase64 = Base64.encodeToString(newContentJson.toByteArray(), Base64.NO_WRAP)
-
-            githubApi.putContent(
-                token, owner, repo, path,
-                GithubPutRequest(
-                    message = "FlashTonnos: delete card $id",
-                    content = newContentBase64,
-                    sha = currentContentResponse.sha,
-                    branch = branch
-                )
-            )
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    suspend fun insertAllCards(cards: List<Flashcard>) {
-        cardDao.insertAll(cards.map { FlashcardMapper.toEntity(it) })
     }
 
     fun recordAnswer(isCorrect: Boolean) {
         appPreferences.recordAnswer(isCorrect)
     }
 
-    private suspend fun getCardsFolder(): String {
-        val folder = appPreferences.githubCardsFolderFlow.first().trim()
-        return if (folder.isEmpty()) "flashcards" else folder.trim('/')
+    fun getCurrentCorrectStreak(): Int = appPreferences.getCurrentCorrectStreak()
+
+    suspend fun clearAllCards() {
+        cardDao.clearAll()
+        deepDiveDao.clearCards()
     }
 
-    suspend fun saveStatsToGithub() {
-        try {
-            val owner = appPreferences.githubOwnerFlow.first()
-            val repo = appPreferences.githubRepoFlow.first()
-            val branch = appPreferences.githubBranchFlow.first()
-            val token = "Bearer ${appPreferences.getGithubPat()}"
-            if (owner.isBlank() || repo.isBlank() || token.isBlank()) return
-            
-            val cardsFolder = getCardsFolder()
-            val path = "$cardsFolder/statistics.json"
-            
-            // Check if exists
-            val existingSha = try {
-                githubApi.getContent(token, owner, repo, path, branch).sha
-            } catch (e: Exception) {
-                null
-            }
-
-            val statsMap = getStats()
-            val statsObj = StatsJson(
-                total = statsMap["total"] as? Int ?: 0,
-                correct = statsMap["correct"] as? Int ?: 0,
-                incorrect = statsMap["incorrect"] as? Int ?: 0,
-                accuracy = statsMap["accuracy"] as? Int ?: 0,
-                easy = statsMap["easy"] as? Int ?: 0,
-                medium = statsMap["medium"] as? Int ?: 0,
-                hard = statsMap["hard"] as? Int ?: 0,
-                last_updated = java.time.Instant.now().toString()
-            )
-            
-            val statsAdapter = moshi.adapter(StatsJson::class.java)
-            val contentJson = statsAdapter.toJson(statsObj)
-            val contentBase64 = Base64.encodeToString(contentJson.toByteArray(), Base64.NO_WRAP)
-            
-            githubApi.putContent(
-                token, owner, repo, path,
-                GithubPutRequest(
-                    message = "Update statistics",
-                    content = contentBase64,
-                    sha = existingSha,
-                    branch = branch
-                )
-            )
-        } catch (e: Exception) {
-            e.printStackTrace()
+    suspend fun resetStudyStatistics() {
+        // Reset local database times shown/correct for all cards
+        val allCards = cardDao.getAllCards().first()
+        val resetCards = allCards.map {
+            it.copy(timesShown = 0, timesCorrect = 0, lastShown = null)
         }
-    }
+        cardDao.insertAll(resetCards)
 
-    suspend fun saveTrackedFilesToGithub() {
-        try {
-            val owner = appPreferences.githubOwnerFlow.first()
-            val repo = appPreferences.githubRepoFlow.first()
-            val branch = appPreferences.githubBranchFlow.first()
-            val token = "Bearer ${appPreferences.getGithubPat()}"
-            if (owner.isBlank() || repo.isBlank() || token.isBlank()) return
-            
-            val cardsFolder = getCardsFolder()
-            val path = "$cardsFolder/tracked_files.json"
-            
-            val existingSha = try {
-                githubApi.getContent(token, owner, repo, path, branch).sha
-            } catch (e: Exception) {
-                null
-            }
-
-            val trackedList = getAllTrackedFiles()
-            val trackedJsonType = Types.newParameterizedType(List::class.java, com.example.data.local.entities.TrackedFileEntity::class.java)
-            val trackedJsonAdapter = moshi.adapter<List<com.example.data.local.entities.TrackedFileEntity>>(trackedJsonType)
-            val contentJson = trackedJsonAdapter.toJson(trackedList)
-            val contentBase64 = Base64.encodeToString(contentJson.toByteArray(), Base64.NO_WRAP)
-            
-            githubApi.putContent(
-                token, owner, repo, path,
-                GithubPutRequest(
-                    message = "Update tracked files list",
-                    content = contentBase64,
-                    sha = existingSha,
-                    branch = branch
-                )
-            )
-        } catch (e: Exception) {
-            e.printStackTrace()
+        val allDeepDives = deepDiveDao.getAllCards().first()
+        val resetDives = allDeepDives.map {
+            it.copy(timesShown = 0, lastShown = null)
         }
-    }
-
-    suspend fun ensureFlashTonnosFolderExists() {
-        try {
-            val owner = appPreferences.githubOwnerFlow.first()
-            val repo = appPreferences.githubRepoFlow.first()
-            val branch = appPreferences.githubBranchFlow.first()
-            val token = "Bearer ${appPreferences.getGithubPat()}"
-            if (owner.isBlank() || repo.isBlank() || token.isBlank()) return
-
-            listOf(
-                "FlashTonnos/.keep",
-                "FlashTonnos/cards/.keep",
-                "FlashTonnos/stats/.keep"
-            ).forEach { path ->
-                val exists = try {
-                    githubApi.getContent(token, owner, repo, path, branch)
-                    true
-                } catch (e: Exception) {
-                    false
-                }
-
-                if (!exists) {
-                    try {
-                        githubApi.putContent(
-                            token, owner, repo, path,
-                            GithubPutRequest(
-                                message = "FlashTonnos: initialize folder structure",
-                                content = Base64.encodeToString("".toByteArray(), Base64.NO_WRAP),
-                                sha = null,
-                                branch = branch
-                            )
-                        )
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    suspend fun updateCardsIndex(newCards: List<CardIndexEntry>) {
-        try {
-            val owner = appPreferences.githubOwnerFlow.first()
-            val repo = appPreferences.githubRepoFlow.first()
-            val branch = appPreferences.githubBranchFlow.first()
-            val token = "Bearer ${appPreferences.getGithubPat()}"
-            if (owner.isBlank() || repo.isBlank() || token.isBlank()) return
-
-            val path = "FlashTonnos/cards_index.json"
-            
-            // 1. Leggi indice attuale (e il suo SHA)
-            val currentContentResponse = try {
-                githubApi.getContent(token, owner, repo, path, branch)
-            } catch (e: Exception) {
-                null
-            }
-
-            val currentEntries = if (currentContentResponse != null) {
-                val base64Content = currentContentResponse.content?.replace("\n", "") ?: ""
-                val decodedJson = String(Base64.decode(base64Content, Base64.DEFAULT))
-                val type = Types.newParameterizedType(List::class.java, CardIndexEntry::class.java)
-                val adapter = moshi.adapter<List<CardIndexEntry>>(type)
-                try {
-                    adapter.fromJson(decodedJson) ?: emptyList()
-                } catch (e: Exception) {
-                    emptyList()
-                }
-            } else {
-                emptyList()
-            }
-
-            // 2. Aggiungi le nuove entry (evita duplicati per ID)
-            val existingIds = currentEntries.map { it.id }.toSet()
-            val merged = currentEntries + newCards.filter { it.id !in existingIds }
-
-            // 3. Scrivi con lo SHA corretto
-            val type = Types.newParameterizedType(List::class.java, CardIndexEntry::class.java)
-            val adapter = moshi.adapter<List<CardIndexEntry>>(type)
-            val newContentJson = adapter.toJson(merged)
-            val newContentBase64 = Base64.encodeToString(newContentJson.toByteArray(), Base64.NO_WRAP)
-
-            githubApi.putContent(
-                token, owner, repo, path,
-                GithubPutRequest(
-                    message = "FlashTonnos: update index (+${newCards.size} cards)",
-                    content = newContentBase64,
-                    sha = currentContentResponse?.sha,
-                    branch = branch
-                )
-            )
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-    
-    private suspend fun saveCardToGithub(card: Flashcard) {
-        try {
-            val owner = appPreferences.githubOwnerFlow.first()
-            val repo = appPreferences.githubRepoFlow.first()
-            val branch = appPreferences.githubBranchFlow.first()
-            val token = "Bearer ${appPreferences.getGithubPat()}"
-            val cardsFolder = getCardsFolder()
-            val path = "$cardsFolder/${card.id}.json"
-            
-            // Check if exists
-            val existingSha = try {
-                githubApi.getContent(token, owner, repo, path, branch).sha
-            } catch (e: Exception) {
-                null
-            }
-
-            val contentJson = cardAdapter.toJson(card)
-            val contentBase64 = Base64.encodeToString(contentJson.toByteArray(), Base64.NO_WRAP)
-            
-            githubApi.putContent(
-                token, owner, repo, path,
-                GithubPutRequest(
-                    message = "Update flashcard ${card.id}",
-                    content = contentBase64,
-                    sha = existingSha,
-                    branch = branch
-                )
-            )
-        } catch (e: Exception) {
-            e.printStackTrace() // Handle properly in real app
-        }
-    }
-
-    private suspend fun fetchMarkdownFilesRecursive(
-        token: String,
-        owner: String,
-        repo: String,
-        folder: String,
-        branch: String
-    ): List<String> {
-        return try {
-            val contents = if (folder.isBlank()) {
-                githubApi.getRootContents(token, owner, repo, branch)
-            } else {
-                githubApi.getDirectoryContents(token, owner, repo, folder, branch)
-            }
-            val filesList = mutableListOf<String>()
-            val cardsFolder = getCardsFolder()
-            for (item in contents) {
-                if (item.type == "file" && item.name.endsWith(".md", ignoreCase = true)) {
-                    filesList.add(item.path)
-                } else if (item.type == "dir") {
-                    // Skip system folder of flashcards if scanning from root
-                    if (folder.isBlank() && item.name.equals(cardsFolder, ignoreCase = true)) {
-                        continue
-                    }
-                    val subFiles = fetchMarkdownFilesRecursive(token, owner, repo, item.path, branch)
-                    filesList.addAll(subFiles)
-                }
-            }
-            filesList
-        } catch (e: Exception) {
-            e.printStackTrace()
-            emptyList()
-        }
-    }
-
-    suspend fun fetchMarkdownFiles(folder: String): List<String> {
-        val owner = appPreferences.githubOwnerFlow.first()
-        val repo = appPreferences.githubRepoFlow.first()
-        val branch = appPreferences.githubBranchFlow.first()
-        val token = "Bearer ${appPreferences.getGithubPat()}"
+        deepDiveDao.insertAllCards(resetDives)
         
-        val connectionError = verifyGithubConnection()
-        if (connectionError != null) {
-            throw IllegalArgumentException(connectionError)
-        }
-        
-        return try {
-            fetchMarkdownFilesRecursive(token, owner, repo, folder, branch)
-        } catch (e: Exception) {
-            emptyList()
-        }
-    }
-
-    suspend fun fetchMarkdownFilesFromConfiguredFolders(): List<String> {
-        val folders = appPreferences.sourceFoldersFlow.first()
-        if (folders.isEmpty()) {
-            return fetchMarkdownFiles("")
-        }
-        val allFiles = mutableListOf<String>()
-        for (folder in folders) {
-            try {
-                val files = fetchMarkdownFiles(folder)
-                allFiles.addAll(files)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-        if (allFiles.isEmpty()) {
-            return fetchMarkdownFiles("")
-        }
-        return allFiles.distinct()
-    }
-
-    suspend fun generateCards(
-        sourceFile: String,
-        amount: Int,
-        type: String,
-        onProgress: (String) -> Unit = {}
-    ): Int {
-        val maxBatchSize = 15
-        if (amount > maxBatchSize) {
-            var totalGenerated = 0
-            val batches = (amount + maxBatchSize - 1) / maxBatchSize
-            for (batchIdx in 0 until batches) {
-                val batchAmount = if (batchIdx == batches - 1) {
-                    amount - (batchIdx * maxBatchSize)
-                } else {
-                    maxBatchSize
-                }
-                onProgress("Avvio batch ${batchIdx + 1}/$batches (generando $batchAmount card)...")
-                val batchResult = generateCardsSingleBatch(
-                    sourceFile = sourceFile,
-                    amount = batchAmount,
-                    type = type,
-                    batchIndex = batchIdx + 1,
-                    totalBatches = batches,
-                    onProgress = onProgress
-                )
-                totalGenerated += batchResult
-            }
-            return totalGenerated
-        } else {
-            return generateCardsSingleBatch(
-                sourceFile = sourceFile,
-                amount = amount,
-                type = type,
-                batchIndex = 1,
-                totalBatches = 1,
-                onProgress = onProgress
-            )
-        }
-    }
-
-    private suspend fun generateCardsSingleBatch(
-        sourceFile: String,
-        amount: Int,
-        type: String,
-        batchIndex: Int,
-        totalBatches: Int,
-        onProgress: (String) -> Unit = {}
-    ): Int {
-        try {
-            onProgress("[$batchIndex/$totalBatches] Recupero configurazioni...")
-            val owner = appPreferences.githubOwnerFlow.first()
-            val repo = appPreferences.githubRepoFlow.first()
-            val branch = appPreferences.githubBranchFlow.first()
-            val token = "Bearer ${appPreferences.getGithubPat()}"
-            
-            onProgress("[$batchIndex/$totalBatches] Lettura file sorgente: $sourceFile...")
-            val fileContentResponse = githubApi.getContent(token, owner, repo, sourceFile, branch)
-            val base64Content = fileContentResponse.content?.replace("\n", "") ?: return 0
-            val markdownText = String(Base64.decode(base64Content, Base64.DEFAULT))
-
-            // Load agent.md dynamically
-            val agentInstructions = try {
-                context.assets.open("agent.md").bufferedReader().use { it.readText() }
-            } catch (e: Exception) {
-                "Generate structured educational flashcards."
-            }
-
-            val studyMode = appPreferences.studyModeFlow.first()
-            val lang = appPreferences.selectedLanguageFlow.first()
-
-            val langInstruction = if (lang == "it") {
-                """
-                L'utente ha selezionato la lingua ITALIANA.
-                Sia la domanda, sia tutte le opzioni di risposta, sia la risposta corretta, sia la spiegazione, sia i tag/topics DEVONO essere scritti rigorosamente in lingua ITALIANA.
-                Non mischiare inglese e italiano nelle risposte o spiegazioni.
-                Per le card di tipo "true_false", le opzioni in "options" devono essere esattamente ["Vero", "Falso"] e il "correct_answer" deve essere esattamente uno di questi due valori.
-                """.trimIndent()
-            } else {
-                """
-                The user has selected the ENGLISH language.
-                The question, all answer options, the correct answer, the explanation, and the tag/topics MUST be generated strictly in ENGLISH.
-                Do not output Italian answers or explanations.
-                For "true_false" type cards, the "options" array must contain exactly ["True", "False"] and the "correct_answer" must be exactly one of these two values.
-                """.trimIndent()
-            }
-
-            val prompt = """
-                SYSTEM INSTRUCTIONS:
-                $agentInstructions
-
-                USER TASK:
-                Current Study Mode Requested: $studyMode (classic, questions, or curiosities)
-                Please read the markdown text below and generate $amount items of type "$type" matching this study mode.
-                
-                CRITICAL INSTRUCTIONS FOR QUALITY AND LOCALIZATION:
-                $langInstruction
-
-                1. OPTIONS LENGTH: Every string in the "options" array MUST be extremely short, clear, and concise (maximum 5-8 words). DO NOT write long paragraphs or complex sentences in the options.
-                2. CORRECT ANSWER MATCH: The "correct_answer" string MUST match EXACTLY (character-for-character, including casing and spelling) one of the strings inside the "options" array.
-                3. QUESTIONS CLARITY: Questions must be logical, grammatically flawless, direct, and unambiguous in the requested language. No misleading or convoluted phrasing.
-                4. TOPICS SPECIFICATION: The "topics" array must contain 1 to 3 short conceptual single-word tags describing the subject matter (e.g., ["Sistemista"], ["AI"], ["Database"], ["Reti"], ["Programmazione"], ["Inglese"]). DO NOT put folder paths, filenames, or file extensions (like "Appunti", ".md", etc.) in the topics.
-                5. FOR "true_false" TYPE: The "options" array must contain exactly two values: ${if (lang == "it") "[\"Vero\", \"Falso\"]" else "[\"True\", \"False\"]"}. The "correct_answer" MUST be exactly one of those.
-
-                SOURCE TEXT:
-                $markdownText
-
-                Remember: Reply with a raw JSON array matching the instructions in the system prompt. No markdown wrapper blocks.
-            """.trimIndent()
-
-            onProgress("[$batchIndex/$totalBatches] Chiamata ad OpenRouter via ${appPreferences.openRouterModelFlow.first()}...")
-            val openRouterToken = "Bearer ${appPreferences.getOpenRouterKey()}"
-            val model = appPreferences.openRouterModelFlow.first()
-            
-            val response = openRouterApi.generateCards(
-                token = openRouterToken,
-                request = OpenRouterRequest(
-                    model = model,
-                    messages = listOf(Message("user", prompt))
-                )
-            )
-
-            val jsonResponse = response.choices?.firstOrNull()?.message?.content ?: return 0
-            
-            // Extremely robust cleaning to isolate the JSON array
-            var cleanedJson = jsonResponse.trim()
-            val firstBracket = cleanedJson.indexOf('[')
-            val lastBracket = cleanedJson.lastIndexOf(']')
-            if (firstBracket != -1 && lastBracket != -1 && lastBracket > firstBracket) {
-                cleanedJson = cleanedJson.substring(firstBracket, lastBracket + 1)
-            } else {
-                // fallback to previous cleaning logic
-                if (cleanedJson.contains("```json")) {
-                    cleanedJson = cleanedJson.substringAfter("```json").substringBeforeLast("```")
-                } else if (cleanedJson.contains("```")) {
-                    cleanedJson = cleanedJson.substringAfter("```").substringBeforeLast("```")
-                }
-            }
-            cleanedJson = cleanedJson.trim()
-
-            onProgress("[$batchIndex/$totalBatches] Parsing delle card generate...")
-            val parsedGenerated = generatedListAdapter.fromJson(cleanedJson) ?: emptyList()
-            
-            val finalCards = parsedGenerated.map { gen ->
-                // Clean and sanitize options and correct_answer to prevent key mismatches
-                val cleanType = if (gen.type == "true_false") "true_false" else "multiple_choice"
-                var cleanOptions = gen.options.map { it.trim() }.filter { it.isNotEmpty() }
-                var cleanCorrectAnswer = gen.correct_answer.trim()
-
-                if (cleanType == "true_false") {
-                    cleanOptions = if (lang == "it") listOf("Vero", "Falso") else listOf("True", "False")
-                    val isVero = cleanCorrectAnswer.equals("vero", ignoreCase = true) || 
-                                 cleanCorrectAnswer.equals("true", ignoreCase = true) || 
-                                 cleanCorrectAnswer.equals("v", ignoreCase = true) ||
-                                 cleanCorrectAnswer.equals("t", ignoreCase = true)
-                    cleanCorrectAnswer = if (isVero) cleanOptions[0] else cleanOptions[1]
-                } else {
-                    if (cleanOptions.size < 2) {
-                        cleanOptions = listOf(cleanCorrectAnswer, "Opzione 2", "Opzione 3", "Opzione 4")
-                    }
-                    val matchIndex = cleanOptions.indexOfFirst { it.equals(cleanCorrectAnswer, ignoreCase = true) }
-                    if (matchIndex != -1) {
-                        cleanCorrectAnswer = cleanOptions[matchIndex]
-                    } else {
-                        // Correct answer was missing from options list! Insert it at index 0
-                        val mutableOptions = cleanOptions.toMutableList()
-                        if (mutableOptions.isNotEmpty()) {
-                            mutableOptions[0] = cleanCorrectAnswer
-                        } else {
-                            mutableOptions.add(cleanCorrectAnswer)
-                        }
-                        cleanOptions = mutableOptions.shuffled()
-                    }
-                }
-
-                // Map topic and subtopic, falling back to sourceFile name if empty
-                val finalTopic = gen.topic?.trim()?.takeIf { it.isNotEmpty() } ?: run {
-                    var fallback = sourceFile
-                    if (fallback.contains("/")) {
-                        fallback = fallback.substringAfterLast("/")
-                    }
-                    if (fallback.endsWith(".md", ignoreCase = true)) {
-                        fallback = fallback.substring(0, fallback.length - 3)
-                    }
-                    fallback.trim()
-                }
-
-                val finalSubtopic = gen.subtopic?.trim()?.takeIf { it.isNotEmpty() } ?: "Generale"
-
-                val finalTopics = listOf(finalTopic, finalSubtopic)
-
-                Flashcard(
-                    type = cleanType,
-                    question = gen.question.trim(),
-                    correct_answer = cleanCorrectAnswer,
-                    options = cleanOptions,
-                    explanation = gen.explanation.trim(),
-                    source_file = sourceFile,
-                    source_excerpt = gen.source_excerpt.trim(),
-                    difficulty = gen.difficulty,
-                    topics = finalTopics,
-                    source_flag = gen.source_flag,
-                    topic = finalTopic,
-                    subtopic = finalSubtopic
-                )
-            }
-
-            onProgress("[$batchIndex/$totalBatches] Salvataggio nel database locale...")
-            cardDao.insertAll(finalCards.map { FlashcardMapper.toEntity(it) })
-            
-            // Background save to github
-            finalCards.forEachIndexed { index, card ->
-                onProgress("[$batchIndex/$totalBatches] Caricamento su GitHub di ${card.id}.json (${index + 1}/${finalCards.size})...")
-                saveCardToGithub(card)
-            }
-
-            onProgress("[$batchIndex/$totalBatches] Aggiornamento statistiche su GitHub...")
-            saveStatsToGithub()
-
-            // Traccia il file completato
-            try {
-                val sha = fileContentResponse.sha ?: ""
-                val trackedFile = com.example.data.local.entities.TrackedFileEntity(
-                    path = sourceFile,
-                    lastSha = sha,
-                    lastIndexedAt = System.currentTimeMillis()
-                )
-                deepDiveDao.insertTrackedFile(trackedFile)
-                saveTrackedFilesToGithub()
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-
-            onProgress("[$batchIndex/$totalBatches] Sincronizzazione completata! ${finalCards.size} nuove card generate e caricate su GitHub.")
-            return finalCards.size
-        } catch (e: Exception) {
-            e.printStackTrace()
-            val errorMessage = if (e is retrofit2.HttpException) {
-                val body = try { e.response()?.errorBody()?.string() } catch (ignored: Exception) { null }
-                "HTTP ${e.code()}: ${e.message()} — ${body ?: ""}"
-            } else {
-                e.localizedMessage ?: "Errore sconosciuto"
-            }
-            onProgress("[$batchIndex/$totalBatches] Errore durante la generazione: $errorMessage")
-            throw Exception(errorMessage, e)
-        }
+        deepDiveDao.clearInteractions()
     }
 
     suspend fun verifyGithubConnection(): String? {
-        val owner = appPreferences.githubOwnerFlow.first()
-        val repo = appPreferences.githubRepoFlow.first()
+        val owner = appPreferences.getGitHubOwner()
+        val repo = appPreferences.getGitHubRepo()
+        val token = appPreferences.getGitHubToken()
         val branch = appPreferences.githubBranchFlow.first()
-        val rawToken = appPreferences.getGithubPat()
-        val token = "Bearer $rawToken"
-        
-        if (rawToken.isBlank() || owner.isBlank() || repo.isBlank()) {
-            return "Credenziali GitHub incomplete. Inserisci Token PAT, Owner e Nome Repository."
+        if (owner.isBlank() || repo.isBlank() || token.isBlank()) {
+            return "Credenziali GitHub non configurate."
         }
-        
         return try {
-            githubApi.getRootContents(token, owner, repo, branch)
-            null // Success, no error
-        } catch (e: retrofit2.HttpException) {
-            when (e.code()) {
-                401 -> "Token PAT non valido o scaduto (Errore 401 Unauthorized)."
-                403 -> "Accesso negato. Controlla i permessi o i limiti del tuo token PAT (Errore 403 Forbidden)."
-                404 -> "Repository o Branch non trovati. Verifica l'account Owner, il nome del Repository e il Branch (Errore 404 Not Found)."
-                else -> "Errore GitHub (Codice ${e.code()}): ${e.message()}"
-            }
+            githubApi.getRootContents("Bearer $token", owner, repo, branch)
+            null // Success
         } catch (e: Exception) {
-            "Errore di rete o connessione: ${e.localizedMessage ?: "impossibile connettersi a GitHub"}"
+            "${e::class.simpleName}: ${e.message}"
         }
     }
 
-    suspend fun syncFlashcardsFromGithub(onProgress: (String) -> Unit): Int {
-        val owner = appPreferences.githubOwnerFlow.first()
-        val repo = appPreferences.githubRepoFlow.first()
-        val branch = appPreferences.githubBranchFlow.first()
-        val token = "Bearer ${appPreferences.getGithubPat()}"
-        
-        if (owner.isBlank() || repo.isBlank() || token.isBlank()) {
-            throw IllegalArgumentException("Credenziali incomplete! Configura GitHub prima di sincronizzare.")
-        }
-        
-        onProgress("Verifica connessione al repository GitHub...")
-        val connectionError = verifyGithubConnection()
-        if (connectionError != null) {
-            throw IllegalArgumentException(connectionError)
-        }
-        
-        val cardsFolder = getCardsFolder()
-        onProgress("Lettura cartella '$cardsFolder/' su GitHub...")
-        val contents = try {
-            githubApi.getDirectoryContents(token, owner, repo, cardsFolder, branch)
-        } catch (e: Exception) {
-            onProgress("La cartella '$cardsFolder' non esiste ancora su GitHub. Sarà creata quando generi delle nuove card.")
-            return 0
-        }
-        
-        val jsonFiles = contents.filter { it.type == "file" && it.name.endsWith(".json", ignoreCase = true) }
-        if (jsonFiles.isEmpty()) {
-            onProgress("Nessuna flashcard trovata su GitHub nella cartella '$cardsFolder/'.")
-            return 0
-        }
-        
-        onProgress("Rilevate ${jsonFiles.size} card su GitHub. Sincronizzazione in corso...")
-        var downloadedCount = 0
-        
-        for ((index, item) in jsonFiles.withIndex()) {
-            try {
-                if (item.name.equals("statistics.json", ignoreCase = true)) {
-                    continue
-                }
-                
-                if (item.name.equals("tracked_files.json", ignoreCase = true)) {
-                    onProgress("Ripristino elenco file tracciati da GitHub...")
-                    val fileContentResponse = githubApi.getContent(token, owner, repo, item.path, branch)
-                    val base64Content = fileContentResponse.content?.replace("\n", "")
-                    if (base64Content != null) {
-                        val contentJson = String(Base64.decode(base64Content, Base64.DEFAULT))
-                        val trackedJsonType = Types.newParameterizedType(List::class.java, com.example.data.local.entities.TrackedFileEntity::class.java)
-                        val trackedJsonAdapter = moshi.adapter<List<com.example.data.local.entities.TrackedFileEntity>>(trackedJsonType)
-                        val trackedList = trackedJsonAdapter.fromJson(contentJson) ?: emptyList()
-                        trackedList.forEach {
-                            deepDiveDao.insertTrackedFile(it)
-                        }
-                    }
-                    continue
-                }
+    suspend fun getStats(): Map<String, Any> {
+        val cards = cardDao.getAllCards().first()
+        val dives = deepDiveDao.getAllCards().first()
+        val interactions = deepDiveDao.getAllInteractions()
 
-                onProgress("Scaricamento card (${index + 1}/${jsonFiles.size}): ${item.name}...")
-                val fileContentResponse = githubApi.getContent(token, owner, repo, item.path, branch)
-                val base64Content = fileContentResponse.content?.replace("\n", "")
-                if (base64Content != null) {
-                    val contentJson = String(Base64.decode(base64Content, Base64.DEFAULT))
-                    
-                    if (contentJson.contains("\"hook\"") && contentJson.contains("\"body\"")) {
-                        val ddCard = deepDiveCardAdapter.fromJson(contentJson)
-                        if (ddCard != null) {
-                            deepDiveDao.insertCard(DeepDiveMapper.toEntity(ddCard))
-                            downloadedCount++
-                        }
-                    } else if (contentJson.contains("\"question\"") && contentJson.contains("\"correct_answer\"")) {
-                        val card = cardAdapter.fromJson(contentJson)
-                        if (card != null) {
-                            cardDao.insert(FlashcardMapper.toEntity(card))
-                            downloadedCount++
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
+        val totalCards = cards.size
+        val correctAnswers = cards.sumOf { it.timesCorrect }
+        val shownAnswers = cards.sumOf { it.timesShown }
+        val accuracy = if (shownAnswers > 0) (correctAnswers.toFloat() / shownAnswers * 100).toInt() else 0
+
+        val totalDives = dives.size
+        val totalDwellTime = interactions.sumOf { it.dwellTimeMs }
+
+        return mapOf(
+            "total_cards" to totalCards,
+            "accuracy" to accuracy,
+            "total_dives" to totalDives,
+            "total_dwell_time_ms" to totalDwellTime,
+            "daily_streak" to appPreferences.getDailyStreak(),
+            "max_daily_streak" to appPreferences.getMaxDailyStreak()
+        )
+    }
+
+    suspend fun getDeepDiveBodyWordCount(cardId: String): Int {
+        val card = deepDiveDao.getCardById(cardId) ?: return 0
+        return card.body.split("\\s+".toRegex()).filter { it.isNotBlank() }.size
+    }
+
+    suspend fun trackDeepDiveDwellTime(cardId: String, dwellTimeMs: Long) {
+        val cardEntity = deepDiveDao.getCardById(cardId) ?: return
+        val card = DeepDiveMapper.toDomain(cardEntity)
         
-        onProgress("Database locale sincronizzato! $downloadedCount elementi caricati.")
-        return downloadedCount
+        // Update local card times and shown timestamp
+        val updatedCard = card.copy(
+            dwellTimeMs = card.dwellTimeMs + dwellTimeMs,
+            timesShown = card.timesShown + 1,
+            lastShown = System.currentTimeMillis()
+        )
+        deepDiveDao.updateCard(DeepDiveMapper.toEntity(updatedCard))
+
+        // Save interaction
+        val interaction = DeepDiveInteractionEntity(
+            cardId = cardId,
+            topic = card.topic,
+            subtopic = card.subtopic,
+            tagsJson = "[]",
+            dwellTimeMs = dwellTimeMs,
+            timestamp = System.currentTimeMillis(),
+            explicitFeedback = 0
+        )
+        deepDiveDao.insertInteraction(interaction)
     }
 
     suspend fun initializeDemoDeck(): Int {
         val demoCards = mutableListOf<Flashcard>()
         
-        // Define base 5 True/False templates and generate 50 with slight context variations
         val baseTrueFalse = listOf(
             Triple("La velocità della luce nel vuoto è di circa 300.000 km/s.", "Vero", "La velocità della luce è esattamente 299.792,458 km/s, solitamente approssimata a 300.000 km/s."),
             Triple("L'isola di Creta si trova nel Mar Adriatico.", "Falso", "L'isola di Creta si trova nel Mar Egeo, a sud del Mar Egeo nel Mar Mediterraneo."),
@@ -1115,19 +200,19 @@ class FlashcardRepository(
             val indexStr = if (i >= baseTrueFalse.size) " (Variazione ${i / baseTrueFalse.size + 1})" else ""
             demoCards.add(
                 Flashcard(
+                    id = java.util.UUID.randomUUID().toString(),
                     type = "true_false",
                     question = "${base.first}$indexStr",
-                    correct_answer = base.second,
+                    correctAnswer = base.second,
                     options = listOf("Vero", "Falso"),
                     explanation = base.third,
-                    source_file = "Demo_TrueFalse.md",
-                    source_excerpt = base.first,
+                    sourceFile = "Demo_TrueFalse.md",
+                    sourceExcerpt = base.first,
                     difficulty = if (i % 3 == 0) "easy" else if (i % 3 == 1) "medium" else "hard"
                 )
             )
         }
         
-        // Define base 5 Multiple Choice templates and generate 50
         val baseMultipleChoice = listOf(
             Triple("Quale pianeta del sistema solare è noto come il Pianeta Rosso?", "Marte", listOf("Marte", "Venere", "Giove", "Saturno")),
             Triple("Chi ha dipinto la famosa opera 'La Gioconda'?", "Leonardo da Vinci", listOf("Leonardo da Vinci", "Michelangelo", "Raffaello", "Sandro Botticelli")),
@@ -1141,19 +226,19 @@ class FlashcardRepository(
             val indexStr = if (i >= baseMultipleChoice.size) " (Test ${i / baseMultipleChoice.size + 1})" else ""
             demoCards.add(
                 Flashcard(
+                    id = java.util.UUID.randomUUID().toString(),
                     type = "multiple_choice",
                     question = "${base.first}$indexStr",
-                    correct_answer = base.second,
+                    correctAnswer = base.second,
                     options = base.third,
                     explanation = "La risposta corretta è ${base.second}. Questa è una card demo del sistema FlashTonnos per facilitare lo studio attivo e la memorizzazione.",
-                    source_file = "Demo_MultipleChoice.md",
-                    source_excerpt = base.first,
+                    sourceFile = "Demo_MultipleChoice.md",
+                    sourceExcerpt = base.first,
                     difficulty = if (i % 3 == 0) "easy" else if (i % 3 == 1) "medium" else "hard"
                 )
             )
         }
         
-        // Define base 5 Curiosities templates and generate 50
         val baseCuriosities = listOf(
             Triple("Sapevi che il miele non scade mai?", "È vero", "Grazie alla sua bassa umidità e alta acidità, i batteri non possono proliferare nel miele. Sono stati trovati barattoli di miele risalenti a 3000 anni fa nelle tombe egizie ancora perfettamente commestibili!"),
             Triple("Il famoso paradosso del compleanno", "23 persone", "In un gruppo di sole 23 persone, la probabilità che almeno due compiano gli anni lo stesso giorno supera il 50%! Con 57 persone, la probabilità sale al 99%."),
@@ -1167,13 +252,14 @@ class FlashcardRepository(
             val indexStr = if (i >= baseCuriosities.size) " (Pillola ${i / baseCuriosities.size + 1})" else ""
             demoCards.add(
                 Flashcard(
+                    id = java.util.UUID.randomUUID().toString(),
                     type = "multiple_choice",
                     question = "${base.first}$indexStr",
-                    correct_answer = base.second,
+                    correctAnswer = base.second,
                     options = listOf(base.second, "Altra opzione A", "Altra opzione B", "Altra opzione C").shuffled(),
                     explanation = base.third,
-                    source_file = "Demo_Curiosities.md",
-                    source_excerpt = base.first,
+                    sourceFile = "Demo_Curiosities.md",
+                    sourceExcerpt = base.first,
                     difficulty = if (i % 3 == 0) "easy" else if (i % 3 == 1) "medium" else "hard"
                 )
             )
@@ -1183,214 +269,4 @@ class FlashcardRepository(
         appPreferences.updateDemoInitialized(true)
         return demoCards.size
     }
-
-    fun getGithubPat(): String = appPreferences.getGithubPat()
-    fun getOpenRouterKey(): String = appPreferences.getOpenRouterKey()
-
-    suspend fun getGithubOwner(): String = appPreferences.githubOwnerFlow.first()
-    suspend fun getGithubRepo(): String = appPreferences.githubRepoFlow.first()
-    suspend fun getGithubBranch(): String = appPreferences.githubBranchFlow.first()
-
-    suspend fun updateCredentials(
-        pat: String,
-        owner: String,
-        repo: String,
-        branch: String,
-        openRouterKey: String
-    ) {
-        appPreferences.setGithubPat(pat)
-        appPreferences.setOpenRouterKey(openRouterKey)
-        appPreferences.updateGithubOwner(owner)
-        appPreferences.updateGithubRepo(repo)
-        appPreferences.updateGithubBranch(branch)
-        appPreferences.updateDemoInitialized(true)
-    }
-
-    suspend fun saveDeepDiveToGithub(dd: DeepDiveCard) {
-        try {
-            val owner = appPreferences.githubOwnerFlow.first()
-            val repo = appPreferences.githubRepoFlow.first()
-            val branch = appPreferences.githubBranchFlow.first()
-            val token = "Bearer ${appPreferences.getGithubPat()}"
-            val cardsFolder = getCardsFolder()
-            val path = "$cardsFolder/${dd.id}.json"
-            
-            val existingSha = try {
-                githubApi.getContent(token, owner, repo, path, branch).sha
-            } catch (e: Exception) {
-                null
-            }
-
-            val contentJson = deepDiveCardAdapter.toJson(dd)
-            val contentBase64 = Base64.encodeToString(contentJson.toByteArray(), Base64.NO_WRAP)
-            
-            githubApi.putContent(
-                token, owner, repo, path,
-                GithubPutRequest("Update deep dive ${dd.id}", contentBase64, existingSha, branch)
-            )
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    suspend fun uploadAllLocalCardsToGithub(onProgress: (String) -> Unit): Int {
-        val owner = appPreferences.githubOwnerFlow.first()
-        val repo = appPreferences.githubRepoFlow.first()
-        val branch = appPreferences.githubBranchFlow.first()
-        val token = "Bearer ${appPreferences.getGithubPat()}"
-        
-        if (owner.isBlank() || repo.isBlank() || token.isBlank()) {
-            throw IllegalArgumentException("Credenziali incomplete! Configura GitHub prima di sincronizzare.")
-        }
-        
-        onProgress("Verifica connessione al repository GitHub...")
-        val connectionError = verifyGithubConnection()
-        if (connectionError != null) {
-            throw IllegalArgumentException(connectionError)
-        }
-        
-        onProgress("Inizio caricamento statistiche...")
-        saveStatsToGithub()
-        
-        onProgress("Inizio caricamento elenco file tracciati...")
-        saveTrackedFilesToGithub()
-        
-        val localFlashcards = getAllFlashcardsFlow().first()
-        val localDeepDives = getAllDeepDiveCardsFlow().first()
-        
-        val total = localFlashcards.size + localDeepDives.size
-        if (total == 0) {
-            onProgress("Nessuna card locale da caricare.")
-            return 0
-        }
-        
-        onProgress("Rilevate $total card locali da sincronizzare su GitHub...")
-        var uploaded = 0
-        
-        localFlashcards.forEachIndexed { index, card ->
-            onProgress("Caricamento flashcard (${index + 1}/${localFlashcards.size}): ${card.id}...")
-            saveCardToGithub(card)
-            uploaded++
-        }
-        
-        localDeepDives.forEachIndexed { index, dd ->
-            onProgress("Caricamento approfondimento (${index + 1}/${localDeepDives.size}): ${dd.id}...")
-            saveDeepDiveToGithub(dd)
-            uploaded++
-        }
-        
-        onProgress("Caricamento completato con successo! Sincronizzate $uploaded card su GitHub.")
-        return uploaded
-    }
-
-    fun startRegeneratingSingleFile(sourceFile: String, onCompleted: () -> Unit = {}) {
-        if (_isGenerating.value) return
-        _isGenerating.value = true
-        _generationResult.value = null
-        generationJob = repositoryScope.launch {
-            val lang = appPreferences.selectedLanguageFlow.first()
-            _generationProgress.value = if (lang == "it") "Avvio rigenerazione per $sourceFile..." else "Starting regeneration for $sourceFile..."
-            try {
-                // Fetch file content and run generation
-                val owner = appPreferences.githubOwnerFlow.first()
-                val repo = appPreferences.githubRepoFlow.first()
-                val branch = appPreferences.githubBranchFlow.first()
-                val rawToken = appPreferences.getGithubPat()
-                val token = "Bearer $rawToken"
-                
-                _generationProgress.value = if (lang == "it") "Recupero informazioni file da GitHub..." else "Retrieving file info from GitHub..."
-                val fileContentResponse = githubApi.getContent(token, owner, repo, sourceFile, branch)
-                val sha = fileContentResponse.sha ?: ""
-                
-                val generateUseCase = com.example.domain.usecases.AutoGenerationUseCase(
-                    githubApi = githubApi,
-                    openRouterApi = openRouterApi,
-                    deepDiveDao = deepDiveDao,
-                    repository = this@FlashcardRepository,
-                    appPreferences = appPreferences,
-                    context = context
-                )
-                
-                val filesToProcess = listOf(com.example.domain.usecases.FileToProcess(sourceFile, sha))
-                generateUseCase.execute(filesToProcess) { progress ->
-                    _generationProgress.value = progress
-                }
-                
-                _generationResult.value = if (lang == "it") {
-                    "✓ File $sourceFile rigenerato correttamente!"
-                } else {
-                    "✓ File $sourceFile successfully regenerated!"
-                }
-            } catch (e: Exception) {
-                _generationResult.value = if (lang == "it") {
-                    "Errore durante la rigenerazione: ${e.localizedMessage ?: "Errore generico"}"
-                } else {
-                    "Error during regeneration: ${e.localizedMessage ?: "Generic error"}"
-                }
-                e.printStackTrace()
-            } finally {
-                _isGenerating.value = false
-                onCompleted()
-            }
-        }
-    }
-
-    suspend fun deleteLocalCardsBySourceFile(sourceFile: String) {
-        cardDao.deleteCardsBySourceFile(sourceFile)
-        deepDiveDao.deleteCardsBySourceFile(sourceFile)
-    }
-
-    suspend fun clearAllCards() {
-        cardDao.clearAll()
-        deepDiveDao.clearCards()
-        deepDiveDao.clearInteractions()
-        deepDiveDao.clearTrackedFiles()
-        appPreferences.updateDemoInitialized(false)
-    }
-
-    suspend fun resetStudyStatistics() {
-        // 1. Reset local flashcard difficulty and study counts
-        val allCards = cardDao.getAllCards().first()
-        val resetCards = allCards.map { card ->
-            card.copy(
-                timesShown = 0,
-                timesCorrect = 0,
-                difficulty = "medium"
-            )
-        }
-        cardDao.insertAll(resetCards)
-
-        // 2. Clear deep dive interaction history
-        deepDiveDao.clearInteractions()
-
-        // 3. Sync clean stats to GitHub
-        saveStatsToGithub()
-    }
 }
-
-@com.squareup.moshi.JsonClass(generateAdapter = true)
-data class StatsJson(
-    val total: Int,
-    val correct: Int,
-    val incorrect: Int,
-    val accuracy: Int,
-    val easy: Int,
-    val medium: Int,
-    val hard: Int,
-    val last_updated: String
-)
-
-@com.squareup.moshi.JsonClass(generateAdapter = true)
-data class GeneratedFlashcard(
-    val type: String,
-    val question: String,
-    val correct_answer: String,
-    val options: List<String>,
-    val explanation: String,
-    val source_excerpt: String = "",
-    val difficulty: String = "medium",
-    val topics: List<String> = emptyList(),
-    val topic: String? = null,
-    val subtopic: String? = null,
-    val source_flag: String? = null
-)

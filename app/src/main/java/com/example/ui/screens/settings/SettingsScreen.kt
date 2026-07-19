@@ -58,24 +58,18 @@ fun SettingsScreen(
     val githubRepo by viewModel.githubRepo.collectAsState()
     val githubBranch by viewModel.githubBranch.collectAsState()
     val githubCardsFolder by viewModel.githubCardsFolder.collectAsState()
-    val openRouterModel by viewModel.openRouterModel.collectAsState()
     val selectedThemeIndex by viewModel.selectedTheme.collectAsState()
     val studyMode by viewModel.studyMode.collectAsState()
     val isVerifying by viewModel.isVerifying.collectAsState()
     val verificationResult by viewModel.verificationResult.collectAsState()
-    val isSyncingToGithub by viewModel.isSyncingToGithub.collectAsState()
-    val syncToGithubResult by viewModel.syncToGithubResult.collectAsState()
-    val syncProgress by viewModel.syncProgress.collectAsState()
     val sourceFolders by viewModel.sourceFolders.collectAsState()
 
     var githubPat by remember { mutableStateOf(viewModel.getGithubPat()) }
-    var openRouterKey by remember { mutableStateOf(viewModel.getOpenRouterKey()) }
     var foldersInput by remember(sourceFolders) {
         mutableStateOf(sourceFolders.joinToString(", "))
     }
 
     var patVisible by remember { mutableStateOf(false) }
-    var keyVisible by remember { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier
@@ -323,9 +317,9 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(16.dp))
 
                     val modes = listOf(
-                        Triple("classic", Loc.get("mode_classic_label", lang), Loc.get("mode_classic_detail", lang)),
-                        Triple("questions", Loc.get("mode_questions_label", lang), Loc.get("mode_questions_detail", lang)),
-                        Triple("curiosities", Loc.get("mode_curiosities_label", lang), Loc.get("mode_curiosities_detail", lang))
+                        Triple("true_false", if (lang == "it") "Vero o Falso" else "True or False", if (lang == "it") "Domande Vero/Falso da trascinare a destra o sinistra" else "True/False questions with swipe gestures"),
+                        Triple("multiple_choice", if (lang == "it") "Risposta Multipla" else "Multiple Choice", if (lang == "it") "Domande a scelta multipla tradizionali" else "Traditional multiple choice questions"),
+                        Triple("classic", Loc.get("mode_classic_label", lang), Loc.get("mode_classic_detail", lang))
                     )
 
                     modes.forEach { (modeKey, modeTitle, modeDesc) ->
@@ -379,95 +373,6 @@ fun SettingsScreen(
                             )
                         }
                     }
-                }
-            }
-        }
-
-        // Section: OpenRouter AI Settings
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    contentColor = MaterialTheme.colorScheme.onSurface
-                ),
-                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-            ) {
-                Column(modifier = Modifier.padding(20.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Default.AutoAwesome,
-                            contentDescription = "AI",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = Loc.get("ai_config_title", lang),
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    OutlinedTextField(
-                        value = openRouterKey,
-                        onValueChange = {
-                            openRouterKey = it
-                            viewModel.updateOpenRouterKey(it)
-                        },
-                        label = { Text(Loc.get("openrouter_key", lang)) },
-                        visualTransformation = if (keyVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                        trailingIcon = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(onClick = { keyVisible = !keyVisible }) {
-                                    Icon(
-                                        imageVector = if (keyVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                                        contentDescription = if (lang == "it") "Mostra Chiave" else "Show Key",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                IconButton(onClick = { uriHandler.openUri("https://openrouter.ai/keys") }) {
-                                    Icon(
-                                        imageVector = Icons.Default.OpenInNew,
-                                        contentDescription = if (lang == "it") "Trova API Key" else "Get API Key",
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                            }
-                        },
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    OutlinedTextField(
-                        value = openRouterModel,
-                        onValueChange = { viewModel.updateOpenRouterModel(it) },
-                        label = { Text("AI Model ID") },
-                        placeholder = { Text("openrouter/auto") },
-                        trailingIcon = {
-                            IconButton(onClick = { uriHandler.openUri("https://openrouter.ai/models") }) {
-                                Icon(
-                                    imageVector = Icons.Default.OpenInNew,
-                                    contentDescription = if (lang == "it") "Cerca Modelli AI" else "Search AI Models",
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                        },
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = Loc.get("ai_model_desc", lang),
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        ),
-                        modifier = Modifier.padding(horizontal = 4.dp)
-                    )
                 }
             }
         }
@@ -706,66 +611,7 @@ fun SettingsScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(16.dp))
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                    Spacer(modifier = Modifier.height(16.dp))
 
-                    Text(
-                        text = if (lang == "it") "Sincronizzazione Manuale" else "Manual Synchronization",
-                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = if (lang == "it") {
-                            "Carica tutte le flashcard e i dati di avanzamento locali nel repository GitHub configurato per sincronizzarli su altri dispositivi."
-                        } else {
-                            "Upload all local flashcards and learning progress data to the configured GitHub repository to sync them across other devices."
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Button(
-                        onClick = { viewModel.uploadLocalDataToGithub() },
-                        enabled = !isSyncingToGithub && !isVerifying,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                        )
-                    ) {
-                        if (isSyncingToGithub) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(if (lang == "it") "Caricamento in corso..." else "Uploading...")
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.Backup,
-                                contentDescription = null,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(if (lang == "it") "Carica tutto su GitHub" else "Upload everything to GitHub")
-                        }
-                    }
-
-                    if (isSyncingToGithub && syncProgress.isNotBlank()) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = syncProgress,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.fillMaxWidth(),
-                            textAlign = TextAlign.Center
-                        )
-                    }
                 }
             }
         }
@@ -1026,43 +872,5 @@ fun SettingsScreen(
         )
     }
 
-    if (syncToGithubResult != null) {
-        AlertDialog(
-            onDismissRequest = { viewModel.clearSyncResult() },
-            confirmButton = {
-                Button(onClick = { viewModel.clearSyncResult() }) {
-                    Text("OK")
-                }
-            },
-            title = {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    val isSuccess = syncToGithubResult?.contains("successo", ignoreCase = true) == true || syncToGithubResult?.contains("success", ignoreCase = true) == true
-                    Icon(
-                        imageVector = if (isSuccess) Icons.Default.CheckCircle else Icons.Default.Cancel,
-                        contentDescription = null,
-                        tint = if (isSuccess) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
-                    )
-                    Text(
-                        text = if (isSuccess) {
-                            if (lang == "it") "Caricamento Completato" else "Upload Completed"
-                        } else {
-                            if (lang == "it") "Errore Caricamento" else "Upload Error"
-                        },
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                    )
-                }
-            },
-            text = {
-                Text(
-                    text = syncToGithubResult ?: "",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            },
-            shape = RoundedCornerShape(20.dp)
-        )
-    }
+
 }

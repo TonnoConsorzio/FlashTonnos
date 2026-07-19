@@ -85,6 +85,9 @@ interface DeepDiveDao {
     @Query("SELECT COUNT(*) FROM deep_dive_cards WHERE status = 'active'")
     fun countActiveDeepDives(): Flow<Int>
 
+    @Query("SELECT COUNT(*) FROM deep_dive_cards WHERE status = 'active'")
+    fun countActive(): Flow<Int>
+
     @Query("SELECT * FROM tracked_files ORDER BY lastIndexedAt DESC")
     fun getAllTrackedFilesFlow(): Flow<List<TrackedFileEntity>>
 }

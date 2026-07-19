@@ -39,4 +39,7 @@ interface CardDao {
 
     @Query("SELECT COUNT(*) FROM flashcards WHERE status = 'active'")
     fun countActiveFlashcards(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM flashcards WHERE status = 'active'")
+    fun countActive(): Flow<Int>
 }

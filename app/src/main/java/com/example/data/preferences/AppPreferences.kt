@@ -15,6 +15,9 @@ import androidx.security.crypto.MasterKey
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 
 class AppPreferences(private val context: Context) {
@@ -56,7 +59,6 @@ class AppPreferences(private val context: Context) {
     private val GITHUB_REPO = stringPreferencesKey("github_repo")
     private val GITHUB_BRANCH = stringPreferencesKey("github_branch")
     private val GITHUB_CARDS_FOLDER = stringPreferencesKey("github_cards_folder")
-    private val OPENROUTER_MODEL = stringPreferencesKey("openrouter_model")
     private val SOURCE_FOLDERS = stringSetPreferencesKey("source_folders")
     private val SELECTED_THEME = intPreferencesKey("selected_theme")
     private val STUDY_MODE = stringPreferencesKey("study_mode")
@@ -72,13 +74,11 @@ class AppPreferences(private val context: Context) {
 
     // Secure Prefs keys
     private val KEY_GITHUB_PAT = "github_pat"
-    private val KEY_OPENROUTER_KEY = "openrouter_key"
 
     val githubOwnerFlow: Flow<String> = context.dataStore.data.map { it[GITHUB_OWNER] ?: "" }
     val githubRepoFlow: Flow<String> = context.dataStore.data.map { it[GITHUB_REPO] ?: "" }
     val githubBranchFlow: Flow<String> = context.dataStore.data.map { it[GITHUB_BRANCH] ?: "main" }
     val githubCardsFolderFlow: Flow<String> = context.dataStore.data.map { it[GITHUB_CARDS_FOLDER] ?: "flashcards" }
-    val openRouterModelFlow: Flow<String> = context.dataStore.data.map { it[OPENROUTER_MODEL] ?: "openrouter/auto" }
     val sourceFoldersFlow: Flow<Set<String>> = context.dataStore.data.map { it[SOURCE_FOLDERS] ?: setOf("Appunti") }
     val selectedThemeFlow: Flow<Int> = context.dataStore.data.map { it[SELECTED_THEME] ?: 0 }
     val studyModeFlow: Flow<String> = context.dataStore.data.map { it[STUDY_MODE] ?: "classic" }
@@ -96,7 +96,6 @@ class AppPreferences(private val context: Context) {
     suspend fun updateGithubRepo(repo: String) = context.dataStore.edit { it[GITHUB_REPO] = repo }
     suspend fun updateGithubBranch(branch: String) = context.dataStore.edit { it[GITHUB_BRANCH] = branch }
     suspend fun updateGithubCardsFolder(folder: String) = context.dataStore.edit { it[GITHUB_CARDS_FOLDER] = folder }
-    suspend fun updateOpenRouterModel(model: String) = context.dataStore.edit { it[OPENROUTER_MODEL] = model }
     suspend fun updateSourceFolders(folders: Set<String>) = context.dataStore.edit { it[SOURCE_FOLDERS] = folders }
     suspend fun updateSelectedTheme(theme: Int) = context.dataStore.edit { it[SELECTED_THEME] = theme }
     suspend fun updateStudyMode(mode: String) = context.dataStore.edit { it[STUDY_MODE] = mode }
@@ -113,8 +112,9 @@ class AppPreferences(private val context: Context) {
     fun getGithubPat(): String = encryptedPrefs.getString(KEY_GITHUB_PAT, "") ?: ""
     fun setGithubPat(pat: String) = encryptedPrefs.edit().putString(KEY_GITHUB_PAT, pat).apply()
 
-    fun getOpenRouterKey(): String = encryptedPrefs.getString(KEY_OPENROUTER_KEY, "") ?: ""
-    fun setOpenRouterKey(key: String) = encryptedPrefs.edit().putString(KEY_OPENROUTER_KEY, key).apply()
+    fun getGitHubOwner(): String = runBlocking { githubOwnerFlow.first() }
+    fun getGitHubRepo(): String = runBlocking { githubRepoFlow.first() }
+    fun getGitHubToken(): String = getGithubPat()
 
     // Streak and Record keys
     private val KEY_DAILY_STREAK = "daily_streak"

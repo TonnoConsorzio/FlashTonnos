@@ -1,30 +1,24 @@
 package com.example.domain.models
 
+import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
-import java.time.Instant
-import java.util.UUID
 
 @JsonClass(generateAdapter = true)
 data class Flashcard(
-    val id: String = UUID.randomUUID().toString(),
-    val type: String, // "true_false" or "multiple_choice"
+    val id: String,
+    val type: String,           // "true_false" | "multiple_choice"
     val question: String,
-    val correct_answer: String,
+    @Json(name = "correct_answer") val correctAnswer: String,
     val options: List<String>,
     val explanation: String,
-    val source_file: String = "",
-    val source_excerpt: String = "",
-    val created_at: String = Instant.now().toString(),
-    val updated_at: String = Instant.now().toString(),
-    val status: String = "active", // "active", "flagged", "reviewed"
-    val flag_note: String? = null,
-    val ai_review: String? = null,
-    val times_shown: Int = 0,
-    val times_correct: Int = 0,
-    val last_shown: String? = null,
-    val difficulty: String = "medium", // "easy", "medium", "hard"
-    val topics: List<String> = emptyList(),
-    val source_flag: String? = null,
-    val topic: String = "",
-    val subtopic: String = ""
+    val difficulty: String,     // "easy" | "medium" | "hard"
+    @Json(name = "source_excerpt") val sourceExcerpt: String,
+    val topic: String = "",          // da meta.json della cartella
+    val subtopic: String = "",       // da meta.json della cartella
+    @Json(name = "source_file") val sourceFile: String = "",     // da meta.json della cartella
+    // Campi locali (non nel JSON, gestiti da Room)
+    val timesShown: Int = 0,
+    val timesCorrect: Int = 0,
+    val lastShown: Long? = null,
+    val status: String = "active"   // "active" | "flagged"
 )

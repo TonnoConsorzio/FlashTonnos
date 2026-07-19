@@ -76,7 +76,7 @@ fun DeepDiveScreen(
         factory = DeepDiveViewModel.Factory(appContainer)
     )
 ) {
-    val lang by appContainer.flashcardRepository.selectedLanguageFlow.collectAsState(initial = "en")
+    val lang by appContainer.appPreferences.selectedLanguageFlow.collectAsState(initial = "en")
     val feed by viewModel.feedState.collectAsState()
     val darkTheme = isSystemInDarkTheme()
 
@@ -350,7 +350,7 @@ fun DeepDivePageItem(
                           color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                         )
                         Text(
-                          text = card.source_file.substringAfterLast("/"),
+                          text = card.sourceFile.substringAfterLast("/"),
                           style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
                           color = MaterialTheme.colorScheme.onSurface,
                           maxLines = 1

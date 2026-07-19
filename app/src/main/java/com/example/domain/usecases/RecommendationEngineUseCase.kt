@@ -100,7 +100,7 @@ class RecommendationEngineUseCase(
             card.topic in hotTopics || card.tags.any { it in hotTags }
         }.sortedWith(compareBy<DeepDiveCard> { card ->
             // Meno volte mostrate prima, oppure mostrate da più tempo
-            card.times_shown
+            card.timesShown
         }.thenByDescending { card ->
             val topicScore = finalTopicRanking[card.topic] ?: 0.0
             val maxTagScore = card.tags.maxOfOrNull { finalTagRanking[it] ?: 0.0 } ?: 0.0

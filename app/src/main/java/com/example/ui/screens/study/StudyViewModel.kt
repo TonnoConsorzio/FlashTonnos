@@ -5,16 +5,20 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.domain.models.Flashcard
 import com.example.domain.repository.FlashcardRepository
+import com.example.domain.repository.SyncRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-class StudyViewModel(private val repository: FlashcardRepository) : ViewModel() {
+class StudyViewModel(
+    private val repository: FlashcardRepository,
+    private val syncRepository: SyncRepository
+) : ViewModel() {
 
     private val _rawStudyQueue = MutableStateFlow<List<Flashcard>>(emptyList())
     private val _studyQueue = MutableStateFlow<List<Flashcard>>(emptyList())
@@ -24,7 +28,7 @@ class StudyViewModel(private val repository: FlashcardRepository) : ViewModel() 
     val selectedTopic: StateFlow<String?> = _selectedTopic.asStateFlow()
 
     val availableTopics: StateFlow<List<String>> = _rawStudyQueue.map { cards ->
-        cards.flatMap { it.topics }.distinct().filter { it.isNotBlank() }.sorted()
+        cards.map { it.topic }.distinct().filter { it.isNotBlank() }.sorted()
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun selectTopic(topic: String?) {
@@ -45,6 +49,9 @@ class StudyViewModel(private val repository: FlashcardRepository) : ViewModel() 
     private val _isFlipped = MutableStateFlow(false)
     val isFlipped: StateFlow<Boolean> = _isFlipped.asStateFlow()
 
+    private val _currentStreak = MutableStateFlow(0)
+    val currentStreak: StateFlow<Int> = _currentStreak.asStateFlow()
+
     private val _isSyncing = MutableStateFlow(false)
     val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
 
@@ -56,11 +63,16 @@ class StudyViewModel(private val repository: FlashcardRepository) : ViewModel() 
 
     val demoInitializedFlow = repository.demoInitializedFlow
     val selectedLanguage: StateFlow<String> = repository.selectedLanguageFlow.stateIn(viewModelScope, SharingStarted.Lazily, "en")
+    val studyMode: StateFlow<String> = repository.studyModeFlow.stateIn(viewModelScope, SharingStarted.Lazily, "classic")
 
-    val isStudying: StateFlow<Boolean> = repository.isStudying
+    private val _isStudying = MutableStateFlow(false)
+    val isStudying: StateFlow<Boolean> = _isStudying.asStateFlow()
 
     fun setStudying(studying: Boolean) {
-        repository.setStudying(studying)
+        _isStudying.value = studying
+        if (studying) {
+            loadStudyQueue()
+        }
     }
 
     fun clearSyncResult() {
@@ -71,78 +83,43 @@ class StudyViewModel(private val repository: FlashcardRepository) : ViewModel() 
         if (lang == "it") return status
         
         return when {
-            status.startsWith("Verifica connessione") -> "Verifying connection to GitHub repository..."
-            status.startsWith("Lettura cartella") -> {
-                val folder = status.substringAfter("'").substringBefore("'")
-                "Reading folder '$folder' on GitHub..."
-            }
-            status.contains("non esiste ancora") -> {
-                val folder = status.substringAfter("'").substringBefore("'")
-                "The folder '$folder' does not exist yet on GitHub. It will be created when you generate new cards."
-            }
-            status.contains("Nessuna flashcard trovata") -> {
-                val folder = status.substringAfter("'").substringBefore("'")
-                "No flashcards found on GitHub in folder '$folder'."
-            }
-            status.startsWith("Rilevate") -> {
-                val count = status.substringAfter("Rilevate ").substringBefore(" card")
-                "Detected $count cards on GitHub. Syncing..."
-            }
-            status.startsWith("Scaricamento card") -> {
-                val progress = status.substringAfter("(").substringBefore(")")
-                val name = status.substringAfter("): ")
-                "Downloading card ($progress): $name"
-            }
-            status.contains("Database locale sincronizzato") -> {
-                val count = status.substringAfter("sincronizzato! ").substringBefore(" flashcard")
-                "Local database synced! $count flashcards loaded."
-            }
+            status.startsWith("Connessione") -> "Connecting to GitHub..."
+            status.startsWith("Scarico indice") -> "Downloading index..."
+            status.startsWith("Scarico:") -> status.replace("Scarico:", "Downloading:")
             else -> status
         }
     }
 
     fun syncDeck() {
         val lang = selectedLanguage.value
-        _isSyncing.value = true
         _syncResult.value = null
-        _syncStatus.value = if (lang == "it") "Connessione a GitHub..." else "Connecting to GitHub..."
         viewModelScope.launch {
-            try {
-                val count = repository.syncFlashcardsFromGithub { status ->
-                    _syncStatus.value = translateStatus(status, lang)
-                }
-                _syncResult.value = if (lang == "it") {
-                    "✓ Sincronizzazione completata! $count card importate dal tuo repository."
-                } else {
-                    "✓ Sync completed! $count cards imported from your repository."
-                }
-                loadStudyQueue()
-            } catch (e: Exception) {
-                val errMsg = e.localizedMessage ?: "Errore generico"
-                _syncResult.value = if (lang == "it") {
-                    "Errore: $errMsg"
-                } else {
-                    val englishError = errMsg
-                        .replace("Credenziali incomplete! Configura GitHub prima di sincronizzare.", "Incomplete credentials! Configure GitHub before syncing.")
-                        .replace("Repository o Branch non trovati", "Repository or Branch not found")
-                        .replace("Errore di rete o connessione", "Network or connection error")
-                    "Error: $englishError"
-                }
-            } finally {
-                _isSyncing.value = false
-            }
+            syncRepository.sync()
         }
     }
 
-    fun loadStudyQueue() {
+    fun loadStudyQueue(explicitMode: String? = null) {
         viewModelScope.launch {
             val rawCards = repository.getStudyQueueSnapshot()
             val topic = _selectedTopic.value
-            val filtered = if (topic == null) {
+            val currentMode = explicitMode ?: repository.studyModeFlow.first()
+
+            var filtered = if (topic == null) {
                 rawCards
             } else {
-                rawCards.filter { it.topic == topic || it.topics.contains(topic) }
+                rawCards.filter { it.topic == topic }
             }
+
+            // Filter based on study modes
+            filtered = when (currentMode) {
+                "true_false" -> filtered.filter { it.type == "true_false" }
+                "multiple_choice" -> filtered.filter { it.type == "multiple_choice" }
+                else -> filtered // classic includes all
+            }
+
+            // Randomize/shuffle the questions so they are from different topics and not repetitive
+            filtered = filtered.shuffled()
+
             _studyQueue.value = filtered
             if (_currentCardIndex.value >= filtered.size) {
                 _currentCardIndex.value = 0
@@ -151,6 +128,8 @@ class StudyViewModel(private val repository: FlashcardRepository) : ViewModel() 
     }
 
     init {
+        _currentStreak.value = repository.getCurrentCorrectStreak()
+
         // Collect raw study queue for calculating available topics list dynamically
         viewModelScope.launch {
             repository.getStudyQueue().collect { cards ->
@@ -163,19 +142,67 @@ class StudyViewModel(private val repository: FlashcardRepository) : ViewModel() 
                 }
             }
         }
+
+        // Collect study mode changes to refresh study queue dynamically
+        viewModelScope.launch {
+            repository.studyModeFlow.collect { mode ->
+                loadStudyQueue(mode)
+            }
+        }
+
+        // Collect syncRepository syncState to drive StudyScreen syncing flow smoothly
+        viewModelScope.launch {
+            syncRepository.syncState.collect { state ->
+                when (state) {
+                    is SyncRepository.SyncState.Idle -> {
+                        _isSyncing.value = false
+                    }
+                    is SyncRepository.SyncState.Syncing -> {
+                        _isSyncing.value = true
+                        _syncStatus.value = translateStatus(state.step, selectedLanguage.value)
+                    }
+                    is SyncRepository.SyncState.Success -> {
+                        _isSyncing.value = false
+                        val totalNew = state.newFlashcards + state.newDeepDives
+                        _syncResult.value = if (selectedLanguage.value == "it") {
+                            if (totalNew == 0) {
+                                "✓ Tutto aggiornato! Totale nel deck: ${state.totalFlashcards} flashcard e ${state.totalDeepDives} approfondimenti."
+                            } else {
+                                "✓ Sincronizzazione completata! $totalNew nuovi elementi importati. Totale nel deck: ${state.totalFlashcards} flashcard, ${state.totalDeepDives} approfondimenti."
+                            }
+                        } else {
+                            if (totalNew == 0) {
+                                "✓ Everything up to date! Total in deck: ${state.totalFlashcards} flashcards and ${state.totalDeepDives} deep dives."
+                            } else {
+                                "✓ Sync completed! $totalNew new items imported. Total in deck: ${state.totalFlashcards} flashcards, ${state.totalDeepDives} deep-dives."
+                            }
+                        }
+                        loadStudyQueue()
+                    }
+                    is SyncRepository.SyncState.Error -> {
+                        _isSyncing.value = false
+                        _syncResult.value = if (selectedLanguage.value == "it") {
+                            "Errore: ${state.message}"
+                        } else {
+                            "Error: ${state.message}"
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fun submitAnswer(card: Flashcard, selectedOption: String) {
         val isCorrect = if (card.type == "true_false") {
             val selVero = selectedOption == "Vero" || selectedOption == "True" || selectedOption == "V" || selectedOption == "T"
-            val corrVero = card.correct_answer == "Vero" || card.correct_answer == "True" || card.correct_answer == "V" || card.correct_answer == "T"
+            val corrVero = card.correctAnswer == "Vero" || card.correctAnswer == "True" || card.correctAnswer == "V" || card.correctAnswer == "T"
             selVero == corrVero
         } else {
-            selectedOption == card.correct_answer
+            selectedOption == card.correctAnswer
         }
         val updatedCard = card.copy(
-            times_shown = card.times_shown + 1,
-            times_correct = card.times_correct + if (isCorrect) 1 else 0
+            timesShown = card.timesShown + 1,
+            timesCorrect = card.timesCorrect + if (isCorrect) 1 else 0
         )
         
         // Update in memory list immediately so current card does not shift or reorder during review
@@ -189,6 +216,7 @@ class StudyViewModel(private val repository: FlashcardRepository) : ViewModel() 
         _isFlipped.value = true
         
         repository.recordAnswer(isCorrect)
+        _currentStreak.value = repository.getCurrentCorrectStreak()
         
         viewModelScope.launch {
             repository.updateCard(updatedCard)
@@ -241,7 +269,6 @@ class StudyViewModel(private val repository: FlashcardRepository) : ViewModel() 
     }
 
     fun getGithubPat(): String = repository.getGithubPat()
-    fun getOpenRouterKey(): String = repository.getOpenRouterKey()
 
     fun getGithubOwner(onResult: (String) -> Unit) {
         viewModelScope.launch {
@@ -265,11 +292,10 @@ class StudyViewModel(private val repository: FlashcardRepository) : ViewModel() 
         pat: String,
         owner: String,
         repo: String,
-        branch: String,
-        openRouterKey: String
+        branch: String
     ) {
         viewModelScope.launch {
-            repository.updateCredentials(pat, owner, repo, branch, openRouterKey)
+            repository.updateCredentials(pat, owner, repo, branch)
         }
     }
 
@@ -280,11 +306,14 @@ class StudyViewModel(private val repository: FlashcardRepository) : ViewModel() 
         }
     }
 
-    class Factory(private val repository: FlashcardRepository) : ViewModelProvider.Factory {
+    class Factory(
+        private val repository: FlashcardRepository,
+        private val syncRepository: SyncRepository
+    ) : ViewModelProvider.Factory {
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             if (modelClass.isAssignableFrom(StudyViewModel::class.java)) {
                 @Suppress("UNCHECKED_CAST")
-                return StudyViewModel(repository) as T
+                return StudyViewModel(repository, syncRepository) as T
             }
             throw IllegalArgumentException("Unknown ViewModel class")
         }

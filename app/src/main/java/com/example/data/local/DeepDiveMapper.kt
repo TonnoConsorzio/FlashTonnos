@@ -15,44 +15,38 @@ object DeepDiveMapper {
     fun toEntity(domain: DeepDiveCard): DeepDiveCardEntity {
         return DeepDiveCardEntity(
             id = domain.id,
-            contentType = domain.content_type,
+            contentType = "deep_dive",
             hook = domain.hook,
             body = domain.body,
             tagsJson = adapter.toJson(domain.tags),
-            sourceFile = domain.source_file,
-            sourceExcerpt = domain.source_excerpt,
+            sourceFile = domain.sourceFile,
+            sourceExcerpt = domain.sourceExcerpt,
             topic = domain.topic,
             subtopic = domain.subtopic,
-            createdAt = domain.created_at,
-            updatedAt = domain.updated_at,
-            status = domain.status,
-            flagNote = domain.flag_note,
-            aiReview = domain.ai_review,
-            timesShown = domain.times_shown,
-            lastShown = domain.last_shown,
-            sourceFlag = domain.source_flag
+            createdAt = java.time.Instant.now().toString(),
+            updatedAt = java.time.Instant.now().toString(),
+            status = "active",
+            flagNote = null,
+            aiReview = null,
+            timesShown = domain.timesShown,
+            lastShown = domain.lastShown?.toString(),
+            sourceFlag = null
         )
     }
 
     fun toDomain(entity: DeepDiveCardEntity): DeepDiveCard {
         return DeepDiveCard(
             id = entity.id,
-            content_type = entity.contentType,
             hook = entity.hook,
             body = entity.body,
             tags = adapter.fromJson(entity.tagsJson) ?: emptyList(),
-            source_file = entity.sourceFile,
-            source_excerpt = entity.sourceExcerpt,
+            sourceExcerpt = entity.sourceExcerpt,
             topic = entity.topic,
             subtopic = entity.subtopic,
-            created_at = entity.createdAt,
-            updated_at = entity.updatedAt,
-            status = entity.status,
-            flag_note = entity.flagNote,
-            ai_review = entity.aiReview,
-            times_shown = entity.timesShown,
-            last_shown = entity.lastShown,
-            source_flag = entity.sourceFlag
+            sourceFile = entity.sourceFile,
+            dwellTimeMs = 0L,
+            timesShown = entity.timesShown,
+            lastShown = entity.lastShown?.toLongOrNull()
         )
     }
 

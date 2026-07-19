@@ -19,7 +19,6 @@ class SettingsViewModel(
     val githubRepo: StateFlow<String> = preferences.githubRepoFlow.stateIn(viewModelScope, SharingStarted.Lazily, "")
     val githubBranch: StateFlow<String> = preferences.githubBranchFlow.stateIn(viewModelScope, SharingStarted.Lazily, "main")
     val githubCardsFolder: StateFlow<String> = preferences.githubCardsFolderFlow.stateIn(viewModelScope, SharingStarted.Lazily, "flashcards")
-    val openRouterModel: StateFlow<String> = preferences.openRouterModelFlow.stateIn(viewModelScope, SharingStarted.Lazily, "openrouter/auto")
     val selectedTheme: StateFlow<Int> = preferences.selectedThemeFlow.stateIn(viewModelScope, SharingStarted.Lazily, 0)
     val studyMode: StateFlow<String> = preferences.studyModeFlow.stateIn(viewModelScope, SharingStarted.Lazily, "classic")
     val sourceFolders: StateFlow<Set<String>> = preferences.sourceFoldersFlow.stateIn(viewModelScope, SharingStarted.Lazily, setOf("Appunti"))
@@ -45,43 +44,10 @@ class SettingsViewModel(
     fun clearVerificationResult() {
         _verificationResult.value = null
     }
-
-    private val _isSyncingToGithub = kotlinx.coroutines.flow.MutableStateFlow(false)
-    val isSyncingToGithub: StateFlow<Boolean> = _isSyncingToGithub
-
-    private val _syncToGithubResult = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
-    val syncToGithubResult: StateFlow<String?> = _syncToGithubResult
-
-    private val _syncProgress = kotlinx.coroutines.flow.MutableStateFlow("")
-    val syncProgress: StateFlow<String> = _syncProgress
-
-    fun uploadLocalDataToGithub() {
-        _isSyncingToGithub.value = true
-        _syncToGithubResult.value = null
-        _syncProgress.value = "Avvio sincronizzazione..."
-        viewModelScope.launch {
-            try {
-                val count = repository.uploadAllLocalCardsToGithub { progress ->
-                    _syncProgress.value = progress
-                }
-                _syncToGithubResult.value = "Successo: $count elementi caricati e sincronizzati correttamente con GitHub! 🎉"
-            } catch (e: Exception) {
-                _syncToGithubResult.value = "Errore durante il caricamento: ${e.localizedMessage ?: "Errore generico"}"
-            } finally {
-                _isSyncingToGithub.value = false
-            }
-        }
-    }
-
-    fun clearSyncResult() {
-        _syncToGithubResult.value = null
-    }
     
     fun getGithubPat() = preferences.getGithubPat()
-    fun getOpenRouterKey() = preferences.getOpenRouterKey()
 
     fun updateGithubPat(pat: String) = preferences.setGithubPat(pat.trim())
-    fun updateOpenRouterKey(key: String) = preferences.setOpenRouterKey(key.trim())
 
     fun updateGithubOwner(owner: String) {
         viewModelScope.launch { preferences.updateGithubOwner(owner.trim()) }
@@ -94,9 +60,6 @@ class SettingsViewModel(
     }
     fun updateGithubCardsFolder(folder: String) {
         viewModelScope.launch { preferences.updateGithubCardsFolder(folder.trim()) }
-    }
-    fun updateOpenRouterModel(model: String) {
-        viewModelScope.launch { preferences.updateOpenRouterModel(model) }
     }
     fun updateSelectedTheme(theme: Int) {
         viewModelScope.launch { preferences.updateSelectedTheme(theme) }
